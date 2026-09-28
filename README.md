@@ -1,7 +1,7 @@
 <!-- Optional banner slot -->
-<!-- <p align="center"><img src="YOUR_BANNER_URL_HERE" alt="DTOS-Original Banner" /></p> -->
+<!-- <p align="center"><img src="YOUR_BANNER_URL_HERE" alt="dtos Banner" /></p> -->
 
-<h1 align="center">🦁 DTOS-Original 🦁</h1>
+<h1 align="center">🦁 dtos 🦁</h1>
 <h3 align="center">Derek Taylor’s DTOS tiling desktop for Arch-based systems</h3>
 
 <p align="center">A modern, offline-capable, keyboard-first setup that keeps DT’s spirit while letting you customize everything.</p>
@@ -28,7 +28,7 @@
 <h3 align="center">📦 Repo Layout</h3>
 
 ```
-DTOS-Original/
+dtos/
  ├── install.sh
  ├── awesome/
  ├── qtile/
@@ -40,8 +40,8 @@ DTOS-Original/
 <p align="center"><strong>Requires:</strong> Arch/Arch-based distro with <code>pacman</code> and <code>sudo</code>.</p>
 
 ```bash
-unzip DTOS-Original.zip
-cd DTOS-Original
+unzip dtos-original.zip
+cd dtos
 chmod +x install.sh
 ./install.sh
 ```
@@ -60,11 +60,11 @@ chmod +x install.sh
 <h3 align="center">🔄 Repack For Sharing (optional)</h3>
 
 ```bash
-rm -f DTOS-Original.zip
-zip -r DTOS-Original.zip DTOS-Original
+rm -f dtos-original.zip
+zip -r dtos-original.zip dtos
 ```
 
-<p>If you just clone and use the repo, you can skip this. Run it only when you want to rebuild a distributable zip after making changes. Prefer a clean archive? <code>git archive --format=zip -o DTOS-Original.zip HEAD</code>.</p>
+<p>If you just clone and use the repo, you can skip this. Run it only when you want to rebuild a distributable zip after making changes. Prefer a clean archive? <code>git archive --format=zip -o dtos-original.zip HEAD</code>.</p>
 
 <h3 align="center">🙏 Credits</h3>
 <ul>
