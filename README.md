@@ -1,7 +1,7 @@
 <!-- Optional banner slot -->
-<!-- <p align="center"><img src="YOUR_BANNER_URL_HERE" alt="DTOS-Pywal Banner" /></p> -->
+<!-- <p align="center"><img src="YOUR_BANNER_URL_HERE" alt="dtos Banner" /></p> -->
 
-<h1 align="center">🦁 DTOS-Pywal 🦁</h1>
+<h1 align="center">🦁 dtos 🦁</h1>
 <h3 align="center">Derek Taylor’s DTOS tiling desktop for Arch & Arch-based systems (with Pywal)</h3>
 
 <p align="center">A Derek Taylor–inspired, keyboard-first setup with pywal-powered colors and offline-friendly bundles.</p>
@@ -29,7 +29,7 @@
 <h3 align="center">📦 Repo Layout</h3>
 
 ```
-DTOS-Pywal/
+dtos/
  ├── install.sh
  ├── wal/
  ├── dtos-backgrounds/
@@ -43,8 +43,8 @@ DTOS-Pywal/
 <p align="center"><strong>Requires:</strong> Arch/Arch-based distro with <code>pacman</code> and <code>sudo</code>.</p>
 
 ```bash
-unzip DTOS-Pywal.zip
-cd DTOS-Pywal
+unzip dtos-pywal.zip
+cd dtos
 chmod +x install.sh
 ./install.sh
 ```
@@ -65,11 +65,11 @@ chmod +x install.sh
 <h3 align="center">🔄 Repack For Sharing (optional)</h3>
 
 ```bash
-rm -f DTOS-Pywal.zip
-zip -r DTOS-Pywal.zip DTOS-Pywal
+rm -f dtos-pywal.zip
+zip -r dtos-pywal.zip dtos
 ```
 
-<p>If you just clone and use the repo, you can skip this. Run it only when you want to rebuild a distributable zip after making changes. Prefer a clean archive? <code>git archive --format=zip -o DTOS-Pywal.zip HEAD</code>.</p>
+<p>If you just clone and use the repo, you can skip this. Run it only when you want to rebuild a distributable zip after making changes. Prefer a clean archive? <code>git archive --format=zip -o dtos-pywal.zip HEAD</code>.</p>
 
 <h3 align="center">🙏 Credits</h3>
 <ul>
