@@ -49,16 +49,20 @@ run_wal() {
   img="$1"
   [ -z "$img" ] && return 0
   [ ! -f "$img" ] && return 0
-  command -v wal >/dev/null 2>&1 || return 0
 
   postrun="$HOME/.config/wal/postrun"
-  set -- wal -n -q -i "$img"
-  [ -x "$postrun" ] && set -- "$@" -o "$postrun"
-  if [ "$SESSION_TYPE" = "wayland" ] && [ -z "${DISPLAY:-}" ]; then
-    # Avoid xrdb on pure Wayland sessions
-    set -- "$@" -e
+  if [[ "$(readlink -f "$HOME/.config/qtile" 2>/dev/null || true)" == *"dtos-wallust"* ]] && command -v wallust >/dev/null 2>&1; then
+    wallust run -d "$HOME/.config/profiles/dtos-wallust/wallust" -w -q "$img" >/dev/null 2>&1 || true
+    [ -x "$postrun" ] && "$postrun" >/dev/null 2>&1 || true
+  elif command -v wal >/dev/null 2>&1; then
+    set -- wal -n -q -i "$img"
+    [ -x "$postrun" ] && set -- "$@" -o "$postrun"
+    if [ "$SESSION_TYPE" = "wayland" ] && [ -z "${DISPLAY:-}" ]; then
+      # Avoid xrdb on pure Wayland sessions
+      set -- "$@" -e
+    fi
+    "$@" >/dev/null 2>&1 || wal -n -q -R >/dev/null 2>&1 || true
   fi
-  "$@" >/dev/null 2>&1 || wal -n -q -R >/dev/null 2>&1 || true
 
   # Touch caches for autostart restore
   mkdir -p "$HOME/.cache"

@@ -145,8 +145,11 @@ apply_pywal() {
     [ -z "$img" ] && return
     # Skip when no graphical session is present (avoids xrdb errors on pure TTY).
     [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ] && return
-    if command -v wal >/dev/null 2>&1; then
-        postrun="$HOME/.config/wal/postrun"
+    postrun="$HOME/.config/wal/postrun"
+    if [[ "$(readlink -f "$HOME/.config/qtile" 2>/dev/null || true)" == *"dtos-wallust"* ]] && command -v wallust >/dev/null 2>&1; then
+        wallust run -d "$HOME/.config/profiles/dtos-wallust/wallust" -w -q "$img" >/dev/null 2>&1 || true
+        [ -x "$postrun" ] && "$postrun" >/dev/null 2>&1 || true
+    elif command -v wal >/dev/null 2>&1; then
         set -- wal -n -q -i "$img"
         [ -x "$postrun" ] && set -- "$@" -o "$postrun"
         if has_x11; then

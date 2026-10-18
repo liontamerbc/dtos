@@ -33,7 +33,12 @@ fi
 wall_img="$(pick_wall || true)"
 postrun="$HOME/.config/wal/postrun"
 
-if [ -n "$wall_img" ] && [ -f "$wall_img" ]; then
+if [[ "$(readlink -f "$HOME/.config/qtile" 2>/dev/null || true)" == *"dtos-wallust"* ]] && command -v wallust >/dev/null 2>&1; then
+  if [ -n "$wall_img" ] && [ -f "$wall_img" ]; then
+    wallust run -d "$HOME/.config/profiles/dtos-wallust/wallust" -w -q "$wall_img" >/dev/null 2>&1 || true
+    [ -x "$postrun" ] && "$postrun" >/dev/null 2>&1 || true
+  fi
+elif [ -n "$wall_img" ] && [ -f "$wall_img" ]; then
   set -- wal -n -q -i "$wall_img"
   [ -x "$postrun" ] && set -- "$@" -o "$postrun"
   "$@" >/dev/null 2>&1 || wal -n -q -R >/dev/null 2>&1 || true
