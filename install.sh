@@ -40,8 +40,12 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 
 if ! command -v whiptail >/dev/null 2>&1; then
-    echo "Installing 'libnewt' (whiptail)..."
-    sudo pacman -S --needed --noconfirm libnewt
+    echo "Installing 'whiptail'..."
+    if command -v pacman >/dev/null 2>&1; then
+        sudo pacman -S --needed --noconfirm libnewt
+    elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y newt
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -120,10 +124,9 @@ This script will set up a DT-style tiling desktop
 You will be asked a few questions before anything changes." 15 70
 
 # Distro warning
-if ! grep -qs 'ID=arch' /etc/os-release; then
+if ! grep -qsE 'ID=(arch|fedora)' /etc/os-release; then
     whiptail --title "Installing DTOS-Pywal!" --msgbox "\
-WARNING: This installer is written for Arch Linux
-and Arch-based distributions that use pacman.
+WARNING: This installer is written for Arch Linux and Fedora.
 
 Running it on anything else is very likely to break things." 15 72
 fi
@@ -169,86 +172,136 @@ Shall we begin installing DTOS-Pywal now?" 10 60; then
 fi
 
 # ---------------------------------------------------------------------------
-# System update
+# System update & Core packages (Arch pacman / Fedora dnf)
 # ---------------------------------------------------------------------------
 
-run_step "Updating system (pacman -Syu)..." sudo pacman -Syu --noconfirm
+if command -v pacman >/dev/null 2>&1; then
+    run_step "Updating system (pacman -Syu)..." sudo pacman -Syu --noconfirm
 
-# ---------------------------------------------------------------------------
-# Core packages
-# ---------------------------------------------------------------------------
-
-SXIV_PKG=""
-if pacman -Si nsxiv >/dev/null 2>&1; then
-    SXIV_PKG="nsxiv"
-elif pacman -Si sxiv >/dev/null 2>&1; then
-    SXIV_PKG="sxiv"
-else
-    whiptail --title "Image Viewer Warning" --msgbox "Neither nsxiv nor sxiv was found in your repositories.
+    SXIV_PKG=""
+    if pacman -Si nsxiv >/dev/null 2>&1; then
+        SXIV_PKG="nsxiv"
+    elif pacman -Si sxiv >/dev/null 2>&1; then
+        SXIV_PKG="sxiv"
+    else
+        whiptail --title "Image Viewer Warning" --msgbox "Neither nsxiv nor sxiv was found in your repositories.
 
 The installer will continue without that image viewer." 12 70
-fi
+    fi
 
-PYWAL_PKG=""
-if pacman -Q python-pywal16 >/dev/null 2>&1; then
-    :
-elif pacman -Q python-pywal >/dev/null 2>&1; then
-    :
-elif pacman -Si python-pywal >/dev/null 2>&1; then
-    PYWAL_PKG="python-pywal"
-elif pacman -Si python-pywal16 >/dev/null 2>&1; then
-    PYWAL_PKG="python-pywal16"
-else
-    whiptail --title "Pywal Warning" --msgbox "Neither python-pywal nor python-pywal16 is available in your repositories.
+    PYWAL_PKG=""
+    if pacman -Q python-pywal16 >/dev/null 2>&1; then
+        :
+    elif pacman -Q python-pywal >/dev/null 2>&1; then
+        :
+    elif pacman -Si python-pywal >/dev/null 2>&1; then
+        PYWAL_PKG="python-pywal"
+    elif pacman -Si python-pywal16 >/dev/null 2>&1; then
+        PYWAL_PKG="python-pywal16"
+    else
+        whiptail --title "Pywal Warning" --msgbox "Neither python-pywal nor python-pywal16 is available in your repositories.
 
 The installer will continue without pywal; some color features may be missing." 12 70
+    fi
+
+    core_pkgs=(
+        xorg-server xorg-xinit xorg-xrandr xorg-xsetroot xorg-xprop
+        alacritty xterm thunar firefox
+        rofi dmenu
+        picom starship
+        feh xwallpaper swaybg swww
+        maim slop xdotool xclip wl-clipboard grim slurp
+        python-dbus-next pacman-contrib
+        papirus-icon-theme papirus-folders
+        git fzf wget curl unzip
+        python-psutil lm_sensors spice-vdagent
+        noto-fonts ttf-dejavu ttf-liberation ttf-ubuntu-font-family
+    )
+
+    if [ "$INSTALL_XMONAD" = "y" ]; then
+        core_pkgs+=(xmonad xmonad-contrib xmobar)
+    fi
+    if [ "$INSTALL_AWESOME" = "y" ]; then
+        core_pkgs+=(awesome)
+    fi
+    if [ "$INSTALL_QTILE" = "y" ]; then
+        core_pkgs+=(qtile)
+    fi
+    [ -n "$SXIV_PKG" ] && core_pkgs+=("$SXIV_PKG")
+    [ -n "$PYWAL_PKG" ] && core_pkgs+=("$PYWAL_PKG")
+
+    run_step "Installing core packages (window managers + tools)..." \
+        sudo pacman -S --needed --noconfirm "${core_pkgs[@]}"
+
+    wallpaper_pkgs=(xwallpaper)
+    [ -n "$SXIV_PKG" ] && wallpaper_pkgs+=("$SXIV_PKG")
+    run_step "Installing wallpaper tools (sxiv/nsxiv + xwallpaper)..." \
+        sudo pacman -S --needed --noconfirm "${wallpaper_pkgs[@]}"
+
+    run_step "Installing base-devel (needed for building paru/AUR packages)..." \
+        sudo pacman -S --needed --noconfirm base-devel
+elif command -v dnf >/dev/null 2>&1; then
+    fedora_pkgs=(
+        xorg-x11-server-Xorg xorg-x11-drv-amdgpu xorg-x11-drv-libinput
+        xorg-x11-xinit xorg-x11-xauth
+        alacritty xterm thunar firefox
+        rofi dmenu picom
+        feh sxiv swaybg
+        maim slop xdotool xclip wl-clipboard grim slurp
+        papirus-icon-theme
+        git fzf wget curl unzip
+        python3-psutil lm_sensors spice-vdagent
+    )
+    if [ "$INSTALL_XMONAD" = "y" ]; then
+        fedora_pkgs+=(xmonad ghc-xmonad-contrib-devel xmobar)
+    fi
+    if [ "$INSTALL_AWESOME" = "y" ]; then
+        fedora_pkgs+=(awesome)
+    fi
+    if [ "$INSTALL_QTILE" = "y" ]; then
+        fedora_pkgs+=(qtile qtile-wayland qtile-extras)
+    fi
+
+    run_step "Installing Fedora core packages (Xorg + window managers + tools)..." \
+        sudo dnf install -y --skip-unavailable "${fedora_pkgs[@]}"
+
+    if ! command -v wal >/dev/null 2>&1; then
+        run_step "Installing pywal16 via pip..." \
+            pip install --user --break-system-packages pywal16
+    fi
+
+    if ! command -v xwallpaper >/dev/null 2>&1; then
+        run_step "Creating xwallpaper wrapper using feh..." bash -c '
+            cat << "XEOF" > /tmp/xwallpaper
+#!/usr/bin/env bash
+img=""
+for arg in "$@"; do
+    case "$arg" in
+        --stretch|--zoom|--center|--tile|--maximize|--focus|--daemon|--output) ;;
+        -*) ;;
+        *) img="$arg" ;;
+    esac
+done
+if [ -z "$img" ] && [ ! -t 0 ]; then
+    read -r img
 fi
-
-core_pkgs=(
-    xorg-server xorg-xinit xorg-xrandr xorg-xsetroot xorg-xprop
-    alacritty xterm thunar firefox
-    rofi dmenu
-    picom starship
-    feh xwallpaper swaybg swww
-    maim slop xdotool xclip wl-clipboard grim slurp
-    python-dbus-next pacman-contrib
-    papirus-icon-theme papirus-folders
-    git fzf wget curl unzip
-    python-psutil lm_sensors spice-vdagent
-    noto-fonts ttf-dejavu ttf-liberation ttf-ubuntu-font-family
-)
-
-# Add WMs based on what the user chose
-if [ "$INSTALL_XMONAD" = "y" ]; then
-    core_pkgs+=(xmonad xmonad-contrib xmobar)
+if [ -n "$img" ] && [ -f "$img" ]; then
+    exec feh --no-fehbg --bg-scale "$img"
 fi
-if [ "$INSTALL_AWESOME" = "y" ]; then
-    core_pkgs+=(awesome)
+exit 0
+XEOF
+            sudo mv /tmp/xwallpaper /usr/local/bin/xwallpaper
+            sudo chmod 755 /usr/local/bin/xwallpaper
+        '
+    fi
+
+    if [ -f /usr/share/xsessions/qtile.desktop ]; then
+        sudo sed -i 's|^Exec=.*|Exec=/usr/bin/qtile start|' /usr/share/xsessions/qtile.desktop
+    fi
+    if [ -f /usr/share/wayland-sessions/qtile.desktop ]; then
+        sudo sed -i 's|^Exec=.*|Exec=/usr/bin/qtile start -b wayland|' /usr/share/wayland-sessions/qtile.desktop
+    fi
 fi
-if [ "$INSTALL_QTILE" = "y" ]; then
-    core_pkgs+=(qtile)
-fi
-[ -n "$SXIV_PKG" ] && core_pkgs+=("$SXIV_PKG")
-[ -n "$PYWAL_PKG" ] && core_pkgs+=("$PYWAL_PKG")
-
-run_step "Installing core packages (window managers + tools)..." \
-    sudo pacman -S --needed --noconfirm "${core_pkgs[@]}"
-
-# ---------------------------------------------------------------------------
-# Wallpaper tools (sxiv, xwallpaper)
-# ---------------------------------------------------------------------------
-
-wallpaper_pkgs=(xwallpaper)
-[ -n "$SXIV_PKG" ] && wallpaper_pkgs+=("$SXIV_PKG")
-run_step "Installing wallpaper tools (sxiv/nsxiv + xwallpaper)..." \
-    sudo pacman -S --needed --noconfirm "${wallpaper_pkgs[@]}"
-
-# ---------------------------------------------------------------------------
-# Build tools (required for paru/AUR packages)
-# ---------------------------------------------------------------------------
-
-run_step "Installing base-devel (needed for building paru/AUR packages)..." \
-    sudo pacman -S --needed --noconfirm base-devel
 
 # ---------------------------------------------------------------------------
 # Ensure ~/.local/bin is on PATH (dmscripts, dm-run, etc.)
@@ -265,27 +318,29 @@ for rc in "$HOME/.profile" "$HOME/.bashrc"; do
 done
 
 # ---------------------------------------------------------------------------
-# Paru
+# Paru (Arch only)
 # ---------------------------------------------------------------------------
 
-if ! command -v paru >/dev/null 2>&1; then
-    run_step "Installing paru (AUR helper)..." bash -c '
-    cd "$HOME"
-    if [ ! -d paru ]; then
-      git clone https://aur.archlinux.org/paru.git
+if command -v pacman >/dev/null 2>&1; then
+    if ! command -v paru >/dev/null 2>&1; then
+        run_step "Installing paru (AUR helper)..." bash -c '
+        cd "$HOME"
+        if [ ! -d paru ]; then
+          git clone https://aur.archlinux.org/paru.git
+        fi
+        cd paru
+        makepkg -si --noconfirm
+      '
     fi
-    cd paru
-    makepkg -si --noconfirm
-  '
-fi
 
-mkdir -p "$HOME/.config/paru"
-cat >"$HOME/.config/paru/paru.conf" <<EOF
+    mkdir -p "$HOME/.config/paru"
+    cat >"$HOME/.config/paru/paru.conf" <<EOF
 [options]
 BottomUp
 SudoLoop
 CleanAfter
 EOF
+fi
 
 # ---------------------------------------------------------------------------
 # Fonts
@@ -300,7 +355,11 @@ whiptail --title "DTOS-Pywal" --infobox "Font installation skipped (disabled in 
 if whiptail --title "Enable SDDM?" --yesno "SDDM is a graphical login manager.
 
 Would you like to install and enable SDDM now?" 12 60; then
-    run_step "Installing SDDM..." sudo pacman -S --needed --noconfirm sddm
+    if command -v pacman >/dev/null 2>&1; then
+        run_step "Installing SDDM..." sudo pacman -S --needed --noconfirm sddm
+    elif command -v dnf >/dev/null 2>&1; then
+        run_step "Installing SDDM..." sudo dnf install -y sddm
+    fi
     run_step "Enabling SDDM..." sudo systemctl enable sddm.service --force
 else
     whiptail --title "SDDM Skipped" --msgbox "SDDM will NOT be enabled.

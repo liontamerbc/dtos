@@ -58,7 +58,11 @@ set_wallpaper() {
     fi
 
     # X11 wallpaper setter
-    xwallpaper --stretch "$image_path" &
+    if command -v xwallpaper >/dev/null 2>&1; then
+        xwallpaper --stretch "$image_path" &
+    elif command -v feh >/dev/null 2>&1; then
+        feh --no-fehbg --bg-scale "$image_path" &
+    fi
 }
 
 choose_wallpaper() {

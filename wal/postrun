@@ -389,7 +389,7 @@ refresh_icon_theme() {
 refresh_icon_theme "${theme_to_recolor:-Papirus-Dark}"
 
 # Reload Qtile so widgets pick up the fresh palette.
-qtile cmd-obj -o cmd -f reload_config >/dev/null 2>&1 || true
+timeout 2 qtile cmd-obj -o cmd -f reload_config >/dev/null 2>&1 || true
 
 # Sync OpenRGB devices (e.g., mouse mat) to the wal accent color.
 OPENRGB_BIN="$(command -v openrgb || true)"
@@ -414,6 +414,6 @@ PY
         if [ -n "${WAL_OPENRGB_SERVER:-}" ]; then
             server_arg=(--server "${WAL_OPENRGB_SERVER}")
         fi
-        "$OPENRGB_BIN" --client "${server_arg[@]}" --device "$device_idx" --color "$accent_hex" >/dev/null 2>&1 || true
+        timeout 2 "$OPENRGB_BIN" --client "${server_arg[@]}" --device "$device_idx" --color "$accent_hex" >/dev/null 2>&1 || true
     fi
 fi
