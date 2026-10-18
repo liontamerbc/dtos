@@ -28,8 +28,9 @@ PACMAN_BIN="${PACMAN_BIN:-/usr/bin/pacman}"
 if [ ! -x "$PACMAN_BIN" ]; then
     PACMAN_BIN="$(command -v pacman || true)"
 fi
-if [ -z "$PACMAN_BIN" ]; then
-    echo "ERROR: pacman not found on PATH. This installer requires pacman."
+DNF_BIN="$(command -v dnf || true)"
+if [ -z "$PACMAN_BIN" ] && [ -z "$DNF_BIN" ]; then
+    echo "ERROR: Neither pacman nor dnf found on PATH."
     exit 1
 fi
 INSTALL_LOG="${INSTALL_LOG:-/tmp/dtos-original-install.log}"
@@ -48,8 +49,12 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 
 if ! command -v whiptail >/dev/null 2>&1; then
-    echo "Installing 'libnewt' (whiptail)..."
-    sudo "$PACMAN_BIN" -S --needed --noconfirm libnewt
+    echo "Installing 'whiptail'..."
+    if [ -n "$PACMAN_BIN" ]; then
+        sudo "$PACMAN_BIN" -S --needed --noconfirm libnewt
+    elif [ -n "$DNF_BIN" ]; then
+        sudo "$DNF_BIN" install -y newt
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -120,10 +125,9 @@ This script will set up a DT-style tiling desktop
 You will be asked a few questions before anything changes." 15 70
 
 # Distro warning
-if ! grep -qs 'ID=arch' /etc/os-release; then
+if ! grep -qsE 'ID=(arch|fedora)' /etc/os-release; then
     whiptail --title "Installing DTOS-Original!" --msgbox "\
-WARNING: This installer is written for Arch Linux
-and Arch-based distributions that use pacman.
+WARNING: This installer is written for Arch Linux and Fedora.
 
 Running it on anything else is very likely to break things." 15 72
 fi
@@ -169,150 +173,173 @@ Shall we begin installing DTOS-Original now?" 10 60; then
 fi
 
 # ---------------------------------------------------------------------------
-# System update
+# System update & Core packages (Arch pacman / Fedora dnf)
 # ---------------------------------------------------------------------------
 
-run_step "Updating system (pacman -Syu)..." sudo "$PACMAN_BIN" -Syu --noconfirm
+if [ -n "$PACMAN_BIN" ]; then
+    run_step "Updating system (pacman -Syu)..." sudo "$PACMAN_BIN" -Syu --noconfirm
 
-# ---------------------------------------------------------------------------
-# Core packages
-# ---------------------------------------------------------------------------
-
-core_pkgs=(
-    xorg-server xorg-xinit xorg-xrandr xorg-xsetroot xorg-xprop
-    alacritty xterm thunar firefox
-    rofi dmenu
-    picom starship
-    feh sxiv xwallpaper
-    maim slop xdotool xclip wl-clipboard grim slurp
-    git fzf wget curl unzip
-    python-psutil lm_sensors
-    spice-vdagent
-    noto-fonts ttf-dejavu ttf-liberation ttf-ubuntu-font-family
-)
-
-# Add WMs based on what the user chose
-if [ "$INSTALL_XMONAD" = "y" ]; then
-    core_pkgs+=(xmonad xmonad-contrib xmobar)
-fi
-if [ "$INSTALL_AWESOME" = "y" ]; then
-    core_pkgs+=(awesome)
-fi
-if [ "$INSTALL_QTILE" = "y" ]; then
-    core_pkgs+=(qtile)
-fi
-
-run_step "Installing core packages (window managers + tools)..." \
-    sudo "$PACMAN_BIN" -S --needed --noconfirm "${core_pkgs[@]}"
-
-# ---------------------------------------------------------------------------
-# Graphics drivers (Intel/AMD + virtual machines)
-# ---------------------------------------------------------------------------
-
-# Ensure lspci is available for GPU detection
-if ! command -v lspci >/dev/null 2>&1; then
-    run_step "Installing pciutils (for GPU detection)..." sudo "$PACMAN_BIN" -S --needed --noconfirm pciutils
-fi
-
-gpu_info="$(lspci -nn | grep -Ei 'VGA|3D|Display' || true)"
-gpu_drivers=()
-virt_type=""
-
-if echo "$gpu_info" | grep -qi intel; then
-    gpu_drivers+=(
-        mesa mesa-utils vulkan-mesa-layers libva-mesa-driver
-        vulkan-intel intel-media-driver libva-intel-driver xf86-video-intel
+    core_pkgs=(
+        xorg-server xorg-xinit xorg-xrandr xorg-xsetroot xorg-xprop
+        alacritty xterm thunar firefox
+        rofi dmenu
+        picom starship
+        feh sxiv xwallpaper
+        maim slop xdotool xclip wl-clipboard grim slurp
+        git fzf wget curl unzip
+        python-psutil lm_sensors
+        spice-vdagent
+        noto-fonts ttf-dejavu ttf-liberation ttf-ubuntu-font-family
     )
-fi
 
-if echo "$gpu_info" | grep -Eqi 'AMD|ATI'; then
-    gpu_drivers+=(
-        mesa mesa-utils vulkan-mesa-layers libva-mesa-driver
-        vulkan-radeon mesa-vdpau xf86-video-amdgpu
-    )
-fi
+    if [ "$INSTALL_XMONAD" = "y" ]; then
+        core_pkgs+=(xmonad xmonad-contrib xmobar)
+    fi
+    if [ "$INSTALL_AWESOME" = "y" ]; then
+        core_pkgs+=(awesome)
+    fi
+    if [ "$INSTALL_QTILE" = "y" ]; then
+        core_pkgs+=(qtile)
+    fi
 
-# VM guest graphics drivers (installed only when running inside a VM)
-if command -v systemd-detect-virt >/dev/null 2>&1; then
-    virt_type="$(systemd-detect-virt 2>/dev/null || true)"
-fi
+    run_step "Installing core packages (window managers + tools)..." \
+        sudo "$PACMAN_BIN" -S --needed --noconfirm "${core_pkgs[@]}"
 
-case "$virt_type" in
-    kvm|qemu)
-        gpu_drivers+=(xf86-video-qxl xf86-video-fbdev)
-        ;;
-    oracle) # VirtualBox
-        gpu_drivers+=(virtualbox-guest-utils virtualbox-guest-modules-arch)
-        ;;
-    vmware)
-        gpu_drivers+=(xf86-video-vmware open-vm-tools)
-        ;;
-    microsoft) # Hyper-V
-        gpu_drivers+=(xf86-video-fbdev)
-        ;;
-esac
+    if ! command -v lspci >/dev/null 2>&1; then
+        run_step "Installing pciutils (for GPU detection)..." sudo "$PACMAN_BIN" -S --needed --noconfirm pciutils
+    fi
 
-if [ ${#gpu_drivers[@]} -gt 0 ]; then
-    # De-duplicate before installing so we don't spam pacman with repeats on hybrid setups
-    declare -A seen_drivers=()
-    unique_gpu_drivers=()
-    for pkg in "${gpu_drivers[@]}"; do
-        if [ -z "${seen_drivers[$pkg]}" ]; then
-            unique_gpu_drivers+=("$pkg")
-            seen_drivers[$pkg]=1
-        fi
-    done
+    gpu_info="$(lspci -nn | grep -Ei 'VGA|3D|Display' || true)"
+    gpu_drivers=()
+    virt_type=""
 
-    {
-        echo "----- GPU detection $(date -Is) -----"
-        echo "$gpu_info"
-        echo "Driver packages: ${unique_gpu_drivers[*]}"
-        echo
-    } >>"$INSTALL_LOG"
+    if echo "$gpu_info" | grep -qi intel; then
+        gpu_drivers+=(
+            mesa mesa-utils vulkan-mesa-layers libva-mesa-driver
+            vulkan-intel intel-media-driver libva-intel-driver xf86-video-intel
+        )
+    fi
 
-    whiptail --title "DTOS-Original" --infobox "\
+    if echo "$gpu_info" | grep -Eqi 'AMD|ATI'; then
+        gpu_drivers+=(
+            mesa mesa-utils vulkan-mesa-layers libva-mesa-driver
+            vulkan-radeon mesa-vdpau xf86-video-amdgpu
+        )
+    fi
+
+    if command -v systemd-detect-virt >/dev/null 2>&1; then
+        virt_type="$(systemd-detect-virt 2>/dev/null || true)"
+    fi
+
+    case "$virt_type" in
+        kvm|qemu)
+            gpu_drivers+=(xf86-video-qxl xf86-video-fbdev)
+            ;;
+        oracle)
+            gpu_drivers+=(virtualbox-guest-utils virtualbox-guest-modules-arch)
+            ;;
+        vmware)
+            gpu_drivers+=(xf86-video-vmware open-vm-tools)
+            ;;
+        microsoft)
+            gpu_drivers+=(xf86-video-fbdev)
+            ;;
+    esac
+
+    if [ ${#gpu_drivers[@]} -gt 0 ]; then
+        declare -A seen_drivers=()
+        unique_gpu_drivers=()
+        for pkg in "${gpu_drivers[@]}"; do
+            if [ -z "${seen_drivers[$pkg]}" ]; then
+                unique_gpu_drivers+=("$pkg")
+                seen_drivers[$pkg]=1
+            fi
+        done
+
+        {
+            echo "----- GPU detection $(date -Is) -----"
+            echo "$gpu_info"
+            echo "Driver packages: ${unique_gpu_drivers[*]}"
+            echo
+        } >>"$INSTALL_LOG"
+
+        whiptail --title "DTOS-Original" --infobox "\
 Installing graphics drivers (Intel/AMD/VM)...
 
 Packages:
 ${unique_gpu_drivers[*]}" 12 70
 
-    if ! sudo "$PACMAN_BIN" -S --needed --noconfirm "${unique_gpu_drivers[@]}" \
-        > >(tee -a "$INSTALL_LOG") \
-        2> >(tee -a "$INSTALL_LOG" >&2); then
-        whiptail --title "Graphics Driver Install Failed" --msgbox "\
+        if ! sudo "$PACMAN_BIN" -S --needed --noconfirm "${unique_gpu_drivers[@]}" \
+            > >(tee -a "$INSTALL_LOG") \
+            2> >(tee -a "$INSTALL_LOG" >&2); then
+            whiptail --title "Graphics Driver Install Failed" --msgbox "\
 Pacman failed while installing GPU drivers.
 
-Check $INSTALL_LOG for details.
-
-You can retry manually with:
-  sudo $PACMAN_BIN -S --needed ${unique_gpu_drivers[*]}" 16 72
-
-        if ! whiptail --title "Continue Installer?" --yesno "\
-Continue DTOS-Original install without GPU drivers?
-
-Choosing 'No' will abort the installer." 14 72; then
-            error "Graphics driver installation failed. See $INSTALL_LOG for details."
+Check $INSTALL_LOG for details." 14 72
         fi
     fi
-else
-    whiptail --title "Graphics Drivers" --msgbox "No Intel/AMD GPU detected via lspci.
 
-If you expected one, install drivers manually." 12 72
+    run_step "Installing wallpaper tools (sxiv, xwallpaper)..." \
+        sudo "$PACMAN_BIN" -S --needed --noconfirm sxiv xwallpaper
+
+    run_step "Installing base-devel (needed for building paru/AUR packages)..." \
+        sudo "$PACMAN_BIN" -S --needed --noconfirm base-devel
+elif [ -n "$DNF_BIN" ]; then
+    fedora_pkgs=(
+        xorg-x11-server-Xorg xorg-x11-drv-amdgpu xorg-x11-drv-libinput
+        xorg-x11-xinit xorg-x11-xauth
+        alacritty xterm thunar firefox
+        rofi dmenu picom
+        feh sxiv swaybg
+        maim slop xdotool xclip wl-clipboard grim slurp
+        git fzf wget curl unzip
+        python3-psutil lm_sensors spice-vdagent
+    )
+    if [ "$INSTALL_XMONAD" = "y" ]; then
+        fedora_pkgs+=(xmonad ghc-xmonad-contrib-devel xmobar)
+    fi
+    if [ "$INSTALL_AWESOME" = "y" ]; then
+        fedora_pkgs+=(awesome)
+    fi
+    if [ "$INSTALL_QTILE" = "y" ]; then
+        fedora_pkgs+=(qtile qtile-wayland qtile-extras)
+    fi
+
+    run_step "Installing Fedora core packages (Xorg + window managers + tools)..." \
+        sudo "$DNF_BIN" install -y --skip-unavailable "${fedora_pkgs[@]}"
+
+    if ! command -v xwallpaper >/dev/null 2>&1; then
+        run_step "Creating xwallpaper wrapper using feh..." bash -c '
+            cat << "XEOF" > /tmp/xwallpaper
+#!/usr/bin/env bash
+img=""
+for arg in "$@"; do
+    case "$arg" in
+        --stretch|--zoom|--center|--tile|--maximize|--focus|--daemon|--output) ;;
+        -*) ;;
+        *) img="$arg" ;;
+    esac
+done
+if [ -z "$img" ] && [ ! -t 0 ]; then
+    read -r img
 fi
+if [ -n "$img" ] && [ -f "$img" ]; then
+    exec feh --no-fehbg --bg-scale "$img"
+fi
+exit 0
+XEOF
+            sudo mv /tmp/xwallpaper /usr/local/bin/xwallpaper
+            sudo chmod 755 /usr/local/bin/xwallpaper
+        '
+    fi
 
-# ---------------------------------------------------------------------------
-# Wallpaper tools (sxiv, xwallpaper)
-# ---------------------------------------------------------------------------
-
-run_step "Installing wallpaper tools (sxiv, xwallpaper)..." \
-    sudo "$PACMAN_BIN" -S --needed --noconfirm sxiv xwallpaper
-
-# ---------------------------------------------------------------------------
-# Build tools (required for paru/AUR packages)
-# ---------------------------------------------------------------------------
-
-run_step "Installing base-devel (needed for building paru/AUR packages)..." \
-    sudo "$PACMAN_BIN" -S --needed --noconfirm base-devel
+    if [ -f /usr/share/xsessions/qtile.desktop ]; then
+        sudo sed -i 's|^Exec=.*|Exec=/usr/bin/qtile start|' /usr/share/xsessions/qtile.desktop
+    fi
+    if [ -f /usr/share/wayland-sessions/qtile.desktop ]; then
+        sudo sed -i 's|^Exec=.*|Exec=/usr/bin/qtile start -b wayland|' /usr/share/wayland-sessions/qtile.desktop
+    fi
+fi
 
 # ---------------------------------------------------------------------------
 # Ensure ~/.local/bin is on PATH (dmscripts, dm-run, etc.)
@@ -329,27 +356,29 @@ for rc in "$HOME/.profile" "$HOME/.bashrc"; do
 done
 
 # ---------------------------------------------------------------------------
-# Paru
+# Paru (Arch only)
 # ---------------------------------------------------------------------------
 
-if ! command -v paru >/dev/null 2>&1; then
-    run_step "Installing paru (AUR helper)..." bash -c '
-    cd "$HOME"
-    if [ ! -d paru ]; then
-      git clone https://aur.archlinux.org/paru.git
+if [ -n "$PACMAN_BIN" ]; then
+    if ! command -v paru >/dev/null 2>&1; then
+        run_step "Installing paru (AUR helper)..." bash -c '
+        cd "$HOME"
+        if [ ! -d paru ]; then
+          git clone https://aur.archlinux.org/paru.git
+        fi
+        cd paru
+        makepkg -si --noconfirm
+      '
     fi
-    cd paru
-    makepkg -si --noconfirm
-  '
-fi
 
-mkdir -p "$HOME/.config/paru"
-cat >"$HOME/.config/paru/paru.conf" <<EOF
+    mkdir -p "$HOME/.config/paru"
+    cat >"$HOME/.config/paru/paru.conf" <<EOF
 [options]
 BottomUp
 SudoLoop
 CleanAfter
 EOF
+fi
 
 # ---------------------------------------------------------------------------
 # Fonts
@@ -364,7 +393,11 @@ whiptail --title "DTOS-Original" --infobox "Font installation skipped (disabled 
 if whiptail --title "Enable SDDM?" --yesno "SDDM is a graphical login manager.
 
 Would you like to install and enable SDDM now?" 12 60; then
-    run_step "Installing SDDM..." sudo "$PACMAN_BIN" -S --needed --noconfirm sddm
+    if [ -n "$PACMAN_BIN" ]; then
+        run_step "Installing SDDM..." sudo "$PACMAN_BIN" -S --needed --noconfirm sddm
+    elif [ -n "$DNF_BIN" ]; then
+        run_step "Installing SDDM..." sudo "$DNF_BIN" install -y sddm
+    fi
     run_step "Enabling SDDM..." sudo systemctl enable sddm.service --force
 else
     whiptail --title "SDDM Skipped" --msgbox "SDDM will NOT be enabled.

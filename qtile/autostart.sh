@@ -25,16 +25,25 @@ WALL_QTILE="$HOME/.cache/wall_qtile"
 WALL_GENERIC="$HOME/.cache/wall"
 WALL_DIR="/usr/share/backgrounds/dtos-backgrounds"
 
+set_wall() {
+    [ -z "$1" ] && return 1
+    if command -v xwallpaper >/dev/null 2>&1; then
+        xwallpaper --stretch "$1" &
+    elif command -v feh >/dev/null 2>&1; then
+        feh --no-fehbg --bg-scale "$1" &
+    fi
+}
+
 if [ -s "$WALL_QTILE" ]; then
     # Non-empty Qtile-specific cache file – use it
-    xargs xwallpaper --stretch <"$WALL_QTILE" &
+    set_wall "$(head -n 1 "$WALL_QTILE")"
 elif [ -s "$WALL_GENERIC" ]; then
     # Non-empty generic cache – use that
-    xargs xwallpaper --stretch <"$WALL_GENERIC" &
+    set_wall "$(head -n 1 "$WALL_GENERIC")"
 else
     # No valid cache, pick a random DTOS wallpaper
     if [ -d "$WALL_DIR" ]; then
-        find "$WALL_DIR" -type f | shuf -n 1 | xwallpaper --stretch &
+        set_wall "$(find "$WALL_DIR" -type f | shuf -n 1)"
     fi
 fi
 
