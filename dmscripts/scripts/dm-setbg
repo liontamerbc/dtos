@@ -7,14 +7,25 @@
 #  - Qtile updates ~/.cache/wall_qtile
 #  - Awesome updates ~/.cache/wall_awesome
 
-DMENU="dmenu -i -l 10"
 BASE_DIR="/usr/share/backgrounds/dtos-backgrounds"
 WALL_DIR="$BASE_DIR"
 FORCE_DMENU="${DM_SETBG_FORCE_DMENU:-0}"
-BEMENU_THEME_OPTS=""
+DMENU_COLOR_BG=""
+DMENU_COLOR_FG=""
+DMENU_COLOR_ACCENT=""
+DMENU_COLOR_SEL_FG=""
+BEMENU_CUSTOM_OPTS=""
+BEMENU_THEME_NB=""
+BEMENU_THEME_NF=""
+BEMENU_THEME_SB=""
+BEMENU_THEME_SF=""
+BEMENU_THEME_HB=""
+BEMENU_THEME_HF=""
+BEMENU_THEME_BDR=""
 
 # Apply pywal colors to dmenu if wal has been run.
 apply_wal_dmenu() {
+    [ -f "$HOME/.config/dmscripts/config" ] && . "$HOME/.config/dmscripts/config" 2>/dev/null || true
     # Allow opting out via DMENU_PYWAL=0 to keep a static theme.
     if [ "${DMENU_PYWAL:-1}" != "1" ]; then
         return
@@ -33,7 +44,10 @@ apply_wal_dmenu() {
     if [ -z "$bg" ] || [ -z "$fg" ] || [ -z "$accent" ]; then
         return
     fi
-    DMENU="$DMENU -nb '$bg' -nf '$fg' -sb '$accent' -sf '$sel_fg'"
+    DMENU_COLOR_BG="$bg"
+    DMENU_COLOR_FG="$fg"
+    DMENU_COLOR_ACCENT="$accent"
+    DMENU_COLOR_SEL_FG="$sel_fg"
 }
 apply_wal_dmenu
 
@@ -79,7 +93,7 @@ can_use_x11() {
 }
 
 has_wayland() {
-    [ -n "$WAYLAND_DISPLAY" ]
+    [ "$XDG_SESSION_TYPE" = "wayland" ] && [ -n "$WAYLAND_DISPLAY" ] && [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$WAYLAND_DISPLAY" ]
 }
 
 has_tty() {
@@ -89,19 +103,31 @@ has_tty() {
 load_bemenu_theme() {
     # If user provided custom opts, use them.
     if [ -n "$DM_SETBG_BEMENU_OPTS" ]; then
-        BEMENU_THEME_OPTS="$DM_SETBG_BEMENU_OPTS"
+        BEMENU_CUSTOM_OPTS="$DM_SETBG_BEMENU_OPTS"
         return
     fi
 
     # Default DT/Dracula-ish palette (matches your dmenu styling).
-    BEMENU_THEME_OPTS="--nb '#282a36' --nf '#f8f8f2' --sb '#bd93f9' --sf '#282a36' --hb '#bd93f9' --hf '#282a36' --bdr '#bd93f9' --line-height 26 --border 2"
+    BEMENU_THEME_NB="#282a36"
+    BEMENU_THEME_NF="#f8f8f2"
+    BEMENU_THEME_SB="#bd93f9"
+    BEMENU_THEME_SF="#282a36"
+    BEMENU_THEME_HB="#bd93f9"
+    BEMENU_THEME_HF="#282a36"
+    BEMENU_THEME_BDR="#bd93f9"
 
     # Auto-theme from wal colors if available.
     if [ -f "$HOME/.cache/wal/colors.sh" ]; then
         # shellcheck disable=SC1091
         . "$HOME/.cache/wal/colors.sh"
         # dmenu-ish palette: normal bg/fg from color0/color7, selected bg/fg from color4/color0.
-        BEMENU_THEME_OPTS="--nb '$color0' --nf '$color7' --sb '$color4' --sf '$color0' --hb '$color4' --hf '$color0' --bdr '$color4'"
+        BEMENU_THEME_NB="$color0"
+        BEMENU_THEME_NF="$color7"
+        BEMENU_THEME_SB="$color4"
+        BEMENU_THEME_SF="$color0"
+        BEMENU_THEME_HB="$color4"
+        BEMENU_THEME_HF="$color0"
+        BEMENU_THEME_BDR="$color4"
     fi
 }
 
@@ -136,6 +162,52 @@ apply_pywal() {
     fi
 }
 
+run_dmenu() {
+    prompt="$1"
+    if [ -n "$DMENU_COLOR_BG" ] && [ -n "$DMENU_COLOR_FG" ] && [ -n "$DMENU_COLOR_ACCENT" ] && [ -n "$DMENU_COLOR_SEL_FG" ]; then
+        dmenu -i -l 10 -nb "$DMENU_COLOR_BG" -nf "$DMENU_COLOR_FG" -sb "$DMENU_COLOR_ACCENT" -sf "$DMENU_COLOR_SEL_FG" -p "$prompt"
+    else
+        dmenu -i -l 10 -p "$prompt"
+    fi
+}
+
+run_bemenu() {
+    prompt="$1"
+    list_lines="${2:-10}"
+    if [ -n "$BEMENU_CUSTOM_OPTS" ]; then
+        # shellcheck disable=SC2086
+        BEMENU_BACKEND=wayland bemenu -i -l "$list_lines" -p "$prompt" $BEMENU_CUSTOM_OPTS
+    else
+        BEMENU_BACKEND=wayland bemenu -i -l "$list_lines" -p "$prompt" \
+            --nb "$BEMENU_THEME_NB" --nf "$BEMENU_THEME_NF" \
+            --sb "$BEMENU_THEME_SB" --sf "$BEMENU_THEME_SF" \
+            --hb "$BEMENU_THEME_HB" --hf "$BEMENU_THEME_HF" \
+            --bdr "$BEMENU_THEME_BDR" --line-height 26 --border 2
+    fi
+}
+
+run_menu() {
+    kind="$1"
+    prompt="$2"
+    case "$kind" in
+    dmenu)
+        run_dmenu "$prompt"
+        ;;
+    wofi)
+        wofi --dmenu --prompt "$prompt"
+        ;;
+    bemenu)
+        run_bemenu "$prompt"
+        ;;
+    rofi)
+        rofi -dmenu -i -p "$prompt"
+        ;;
+    fzf)
+        fzf --prompt="$prompt " --layout=reverse --height=40%
+        ;;
+    esac
+}
+
 # Detect session and choose per-WM wallpaper folder
 ses_str="$(printf '%s
 ' "$XDG_CURRENT_DESKTOP" "$DESKTOP_SESSION")"
@@ -154,7 +226,6 @@ log_debug "DISPLAY=$DISPLAY WAYLAND_DISPLAY=$WAYLAND_DISPLAY PATH=$PATH"
 log_debug "Menu preference: dmenu (if DISPLAY) -> wofi -> bemenu -> rofi -> fzf"
 log_debug "x_display_available: $(x_display_available && echo yes || echo no), force_dmenu=$FORCE_DMENU"
 load_bemenu_theme
-log_debug "bemenu theme opts: ${BEMENU_THEME_OPTS:-<none>}"
 
 # Require a graphical session; otherwise, avoid "cannot open display" spam.
 if ! has_gui; then
@@ -202,12 +273,12 @@ set_bg() {
     fi
 
     # Update persistent cache per WM
+    mkdir -p "$HOME/.cache"
+    printf '%s\n' "$img" > "$HOME/.cache/wall"
     ses_str="$(printf '%s\n' "$XDG_CURRENT_DESKTOP" "$DESKTOP_SESSION")"
-    if printf '%s\n' "$ses_str" | grep -qi 'qtile'; then
-        mkdir -p "$HOME/.cache"
+    if printf '%s\n' "$ses_str" | grep -qi 'qtile' || pgrep -x qtile >/dev/null 2>&1; then
         printf '%s\n' "$img" > "$HOME/.cache/wall_qtile"
-    elif printf '%s\n' "$ses_str" | grep -qi 'awesome'; then
-        mkdir -p "$HOME/.cache"
+    elif printf '%s\n' "$ses_str" | grep -qi 'awesome' || pgrep -x awesome >/dev/null 2>&1; then
         printf '%s\n' "$img" > "$HOME/.cache/wall_awesome"
     fi
 
@@ -224,32 +295,31 @@ if [ "$1" = "-r" ] || [ "$1" = "--random" ]; then
 fi
 
 # Top-level menu
-menu_cmd=""
+menu_kind=""
 if has_gui; then
-    if [ -n "$WAYLAND_DISPLAY" ]; then
+    if has_wayland; then
         if command -v dmenu >/dev/null 2>&1 && { [ "$FORCE_DMENU" -eq 1 ] || x_display_available; }; then
             # Prefer dmenu via Xwayland when available and reachable.
-            menu_cmd="$DMENU -p 'Wallpaper action:'"
+            menu_kind="dmenu"
         elif command -v wofi >/dev/null 2>&1; then
-            menu_cmd="wofi --dmenu --prompt 'Wallpaper action:'"
+            menu_kind="wofi"
         elif command -v bemenu >/dev/null 2>&1; then
             # bemenu on wayland with wal-themed colors.
-            menu_cmd="BEMENU_BACKEND=wayland bemenu -i -l 10 -p 'Wallpaper action:' $BEMENU_THEME_OPTS"
+            menu_kind="bemenu"
         elif command -v rofi >/dev/null 2>&1; then
-            menu_cmd="rofi -dmenu -i -p 'Wallpaper action:'"
+            menu_kind="rofi"
         fi
     fi
-    if [ -z "$menu_cmd" ] && command -v dmenu >/dev/null 2>&1 && { [ "$FORCE_DMENU" -eq 1 ] || x_display_available; }; then
-        menu_cmd="$DMENU -p 'Wallpaper action:'"
-    elif [ -z "$menu_cmd" ] && command -v fzf >/dev/null 2>&1; then
-        menu_cmd="fzf --prompt='Wallpaper action: ' --layout=reverse --height=40%"
+    if [ -z "$menu_kind" ] && command -v dmenu >/dev/null 2>&1 && { [ "$FORCE_DMENU" -eq 1 ] || x_display_available; }; then
+        menu_kind="dmenu"
+    elif [ -z "$menu_kind" ] && command -v fzf >/dev/null 2>&1; then
+        menu_kind="fzf"
     fi
 fi
 
-if [ -n "$menu_cmd" ]; then
-    # shellcheck disable=SC2086
-    log_debug "Using menu command: $menu_cmd"
-    choice="$(printf '%s\n' "Set" "Random" "Exit" | eval "$menu_cmd")"
+if [ -n "$menu_kind" ]; then
+    log_debug "Using menu: $menu_kind"
+    choice="$(printf '%s\n' "Set" "Random" "Exit" | run_menu "$menu_kind" "Wallpaper action:")"
 else
     if [ "$FORCE_TTY_MENU" -eq 1 ] || has_tty; then
         if command -v fzf >/dev/null 2>&1; then
@@ -277,10 +347,10 @@ case "$choice" in
         img="$(sxiv -t -o "$WALL_DIR" 2>/dev/null | head -n 1)"
     elif command -v dmenu >/dev/null 2>&1 && { [ "$FORCE_DMENU" -eq 1 ] || x_display_available; }; then
         log_debug "Picker: dmenu"
-        img="$(find "$WALL_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) 2>/dev/null | $DMENU -p 'Select wallpaper:')"
-    elif command -v bemenu >/dev/null 2>&1 && [ -n "$WAYLAND_DISPLAY" ]; then
+        img="$(find "$WALL_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) 2>/dev/null | run_dmenu "Select wallpaper:")"
+    elif command -v bemenu >/dev/null 2>&1 && has_wayland; then
         log_debug "Picker: bemenu"
-        img="$(find "$WALL_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) 2>/dev/null | BEMENU_BACKEND=wayland bemenu -i -l 20 -p 'Select wallpaper:' $BEMENU_THEME_OPTS)"
+        img="$(find "$WALL_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) 2>/dev/null | run_bemenu "Select wallpaper:" 20)"
     elif command -v rofi >/dev/null 2>&1; then
         log_debug "Picker: rofi"
         img="$(find "$WALL_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) 2>/dev/null | rofi -dmenu -i -p 'Select wallpaper:')"

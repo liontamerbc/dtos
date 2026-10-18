@@ -25,6 +25,7 @@ BEMENU_THEME_BDR=""
 
 # Apply pywal colors to dmenu if wal has been run.
 apply_wal_dmenu() {
+    [ -f "$HOME/.config/dmscripts/config" ] && . "$HOME/.config/dmscripts/config" 2>/dev/null || true
     # Allow opting out via DMENU_PYWAL=0 to keep a static theme.
     if [ "${DMENU_PYWAL:-1}" != "1" ]; then
         return
@@ -92,7 +93,7 @@ can_use_x11() {
 }
 
 has_wayland() {
-    [ -n "$WAYLAND_DISPLAY" ]
+    [ "$XDG_SESSION_TYPE" = "wayland" ] && [ -n "$WAYLAND_DISPLAY" ] && [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$WAYLAND_DISPLAY" ]
 }
 
 has_tty() {
@@ -272,12 +273,12 @@ set_bg() {
     fi
 
     # Update persistent cache per WM
+    mkdir -p "$HOME/.cache"
+    printf '%s\n' "$img" > "$HOME/.cache/wall"
     ses_str="$(printf '%s\n' "$XDG_CURRENT_DESKTOP" "$DESKTOP_SESSION")"
-    if printf '%s\n' "$ses_str" | grep -qi 'qtile'; then
-        mkdir -p "$HOME/.cache"
+    if printf '%s\n' "$ses_str" | grep -qi 'qtile' || pgrep -x qtile >/dev/null 2>&1; then
         printf '%s\n' "$img" > "$HOME/.cache/wall_qtile"
-    elif printf '%s\n' "$ses_str" | grep -qi 'awesome'; then
-        mkdir -p "$HOME/.cache"
+    elif printf '%s\n' "$ses_str" | grep -qi 'awesome' || pgrep -x awesome >/dev/null 2>&1; then
         printf '%s\n' "$img" > "$HOME/.cache/wall_awesome"
     fi
 
@@ -296,7 +297,7 @@ fi
 # Top-level menu
 menu_kind=""
 if has_gui; then
-    if [ -n "$WAYLAND_DISPLAY" ]; then
+    if has_wayland; then
         if command -v dmenu >/dev/null 2>&1 && { [ "$FORCE_DMENU" -eq 1 ] || x_display_available; }; then
             # Prefer dmenu via Xwayland when available and reachable.
             menu_kind="dmenu"
@@ -347,7 +348,7 @@ case "$choice" in
     elif command -v dmenu >/dev/null 2>&1 && { [ "$FORCE_DMENU" -eq 1 ] || x_display_available; }; then
         log_debug "Picker: dmenu"
         img="$(find "$WALL_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) 2>/dev/null | run_dmenu "Select wallpaper:")"
-    elif command -v bemenu >/dev/null 2>&1 && [ -n "$WAYLAND_DISPLAY" ]; then
+    elif command -v bemenu >/dev/null 2>&1 && has_wayland; then
         log_debug "Picker: bemenu"
         img="$(find "$WALL_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) 2>/dev/null | run_bemenu "Select wallpaper:" 20)"
     elif command -v rofi >/dev/null 2>&1; then

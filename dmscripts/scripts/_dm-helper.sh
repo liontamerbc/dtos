@@ -76,6 +76,7 @@ apply_pywal_menu_colors() {
     local wal_colors="$HOME/.cache/wal/colors.sh"
     [ -f "$wal_colors" ] || return
 
+    : "${FZF_DEFAULT_OPTS:=}" "${LS_COLORS:=}"
     # shellcheck disable=SC1090
     . "$wal_colors"
 

@@ -3,7 +3,15 @@
 set -euo pipefail
 
 pick_wall() {
-  for cache in "$HOME/.cache/wall_awesome" "$HOME/.cache/wall_qtile" "$HOME/.cache/wall"; do
+  if pgrep -x qtile >/dev/null 2>&1; then
+    caches=("$HOME/.cache/wall_qtile" "$HOME/.cache/wall" "$HOME/.cache/wall_awesome")
+  elif pgrep -x awesome >/dev/null 2>&1; then
+    caches=("$HOME/.cache/wall_awesome" "$HOME/.cache/wall" "$HOME/.cache/wall_qtile")
+  else
+    mapfile -t caches < <(ls -1t "$HOME/.cache/wall_qtile" "$HOME/.cache/wall_awesome" "$HOME/.cache/wall" 2>/dev/null || true)
+  fi
+
+  for cache in "${caches[@]}"; do
     if [ -s "$cache" ]; then
       img="$(cat "$cache" 2>/dev/null || true)"
       [ -n "$img" ] && [ -f "$img" ] && { printf "%s\n" "$img"; return 0; }

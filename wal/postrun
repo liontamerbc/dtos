@@ -9,6 +9,93 @@ CACHE="$HOME/.cache/wal"
 WAL_JSON="$CACHE/colors.json"
 WAL_GTK="$CACHE/colors-gtk.css"
 
+# Sync all OpenRGB devices (Keyboard, RAM, Motherboard, Front Fans) to the pywal accent color
+if [ -f "$WAL_JSON" ]; then
+    python3 - "$WAL_JSON" <<'PY' >/dev/null 2>&1 || true
+import colorsys, json, socket, sys
+from pathlib import Path
+
+wal_file = Path(sys.argv[1])
+data = json.loads(wal_file.read_text())
+colors = data.get("colors", {})
+best_rgb = (255, 198, 0)
+best_score = -1.0
+for k in ("color1", "color2", "color3", "color4", "color5", "color6"):
+    val = colors.get(k, "")
+    if not val or not val.startswith("#") or len(val) < 7:
+        continue
+    h = val.lstrip("#")
+    r, g, b = [int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4)]
+    hue, s, v = colorsys.rgb_to_hsv(r, g, b)
+    score = s * (0.4 + 0.6 * v)
+    if score > best_score:
+        best_score = score
+        s_b = min(1.0, s * 1.65) if s > 0.08 else s
+        v_b = max(0.95, v)
+        rb, gb, bb = [int(x * 255) for x in colorsys.hsv_to_rgb(hue, s_b, v_b)]
+        best_rgb = (rb, gb, bb)
+
+try:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.sendto(b"PYWAL_SYNC", ("127.0.0.1", 54321))
+    sock.close()
+except Exception:
+    pass
+
+try:
+    from openrgb import OpenRGBClient
+    from openrgb.utils import RGBColor
+    cli = OpenRGBClient()
+    col = RGBColor(*best_rgb)
+    for d in cli.devices:
+        try:
+            d.set_mode("Direct")
+        except Exception:
+            pass
+        d.set_color(col)
+except Exception:
+    pass
+PY
+fi
+
+# If dtos-original is active, keep classic DTOS app/terminal colors and only sync RGB
+if [[ "$(readlink -f "$HOME/.config/qtile" 2>/dev/null || true)" == *"dtos-original"* ]]; then
+    cat > "$CACHE/colors-alacritty.toml" <<'EOF'
+[colors.primary]
+background = "#282a36"
+foreground = "#f8f8f2"
+
+[colors.cursor]
+cursor = "#f8f8f2"
+text = "#282a36"
+
+[colors.selection]
+background = "#6272a4"
+text = "#f8f8f2"
+
+[colors.normal]
+black = "#21222c"
+red = "#ff5555"
+green = "#50fa7b"
+yellow = "#f1fa8c"
+blue = "#bd93f9"
+magenta = "#ff79c6"
+cyan = "#8be9fd"
+white = "#f8f8f2"
+
+[colors.bright]
+black = "#6272a4"
+red = "#ff6e6e"
+green = "#69ff94"
+yellow = "#ffffa5"
+blue = "#d6acff"
+magenta = "#ff92df"
+cyan = "#a4ffff"
+white = "#ffffff"
+EOF
+    exit 0
+fi
+
 # Keep GTK apps (e.g., Thunar) in sync by pointing gtk.css at wal's GTK CSS.
 if [ -f "$WAL_GTK" ]; then
     mkdir -p "$HOME/.config/gtk-3.0" "$HOME/.config/gtk-4.0"
@@ -391,29 +478,3 @@ refresh_icon_theme "${theme_to_recolor:-Papirus-Dark}"
 # Reload Qtile so widgets pick up the fresh palette.
 timeout 2 qtile cmd-obj -o cmd -f reload_config >/dev/null 2>&1 || true
 
-# Sync OpenRGB devices (e.g., mouse mat) to the wal accent color.
-OPENRGB_BIN="$(command -v openrgb || true)"
-if [ -n "$OPENRGB_BIN" ] && [ -f "$WAL_JSON" ]; then
-    accent_hex="$(python - "$WAL_JSON" <<'PY' || true
-from pathlib import Path
-import json, sys
-
-data = json.loads(Path(sys.argv[1]).read_text())
-colors = data.get("colors", {})
-for key in ("color1", "color2", "color4", "color5"):
-    val = colors.get(key)
-    if val:
-        print(val.lstrip("#"))
-        break
-PY
-)"
-    accent_hex="${accent_hex//$'\n'/}"
-    if [ -n "$accent_hex" ]; then
-        device_idx="${WAL_OPENRGB_DEVICE:-${WAL_OPENRGB_DEVICE_IDX:-0}}"
-        server_arg=()
-        if [ -n "${WAL_OPENRGB_SERVER:-}" ]; then
-            server_arg=(--server "${WAL_OPENRGB_SERVER}")
-        fi
-        timeout 2 "$OPENRGB_BIN" --client "${server_arg[@]}" --device "$device_idx" --color "$accent_hex" >/dev/null 2>&1 || true
-    fi
-fi

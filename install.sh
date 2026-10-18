@@ -614,6 +614,10 @@ run_step "Installing wal wallpaper helpers..." bash -c '
     cp "'"$SCRIPT_DIR"'/scripts/wal-apply-cache" "$HOME/.local/bin/wal-apply-cache"
     chmod +x "$HOME/.local/bin/wal-apply-cache"
   fi
+  if [ -f "'"$SCRIPT_DIR"'/scripts/dtos-switch" ]; then
+    cp "'"$SCRIPT_DIR"'/scripts/dtos-switch" "$HOME/.local/bin/dtos-switch"
+    chmod +x "$HOME/.local/bin/dtos-switch"
+  fi
 '
 
 if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then

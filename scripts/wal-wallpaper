@@ -15,8 +15,9 @@ if [ ! -f "$wall" ]; then
 fi
 
 SESSION_TYPE="x11"
-[ "${XDG_SESSION_TYPE:-}" = "wayland" ] && SESSION_TYPE="wayland"
-[ -n "${WAYLAND_DISPLAY:-}" ] && SESSION_TYPE="wayland"
+if [ "${XDG_SESSION_TYPE:-}" = "wayland" ] && [ -n "${WAYLAND_DISPLAY:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/${WAYLAND_DISPLAY:-}" ]; then
+  SESSION_TYPE="wayland"
+fi
 
 set_wallpaper() {
   img="$1"

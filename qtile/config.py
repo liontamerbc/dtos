@@ -37,11 +37,18 @@ def is_wayland():
     except Exception:
         return bool(os.environ.get("WAYLAND_DISPLAY"))
 
-# Set keyboard layout on every startup
+# Refresh X11 key grabs after KeyboardLayout widget finishes configuring setxkbmap
 @hook.subscribe.startup
-def startup():
+def refresh_x11_keys():
     if not is_wayland():
-        os.system("setxkbmap gb")
+        def _regrab():
+            try:
+                qtile.core.conn.refresh_keymap()
+                qtile.grab_keys()
+                qtile.core.conn.conn.flush()
+            except Exception:
+                pass
+        qtile.call_later(0.2, _regrab)
 
 # Run autostart script once (your dtos autostart.sh)
 @hook.subscribe.startup_once
@@ -77,15 +84,15 @@ ENABLE_STATUS_NOTIFIER = True
 # ---------- Helper window move functions ----------
 
 def window_to_prev_group(qtile):
-    if qtile.currentWindow is not None:
-        i = qtile.groups.index(qtile.currentGroup)
-        qtile.currentWindow.togroup(qtile.groups[i - 1].name)
+    if qtile.current_window is not None:
+        i = qtile.groups.index(qtile.current_group)
+        qtile.current_window.togroup(qtile.groups[i - 1].name)
 
 
 def window_to_next_group(qtile):
-    if qtile.currentWindow is not None:
-        i = qtile.groups.index(qtile.currentGroup)
-        qtile.currentWindow.togroup(qtile.groups[i + 1].name)
+    if qtile.current_window is not None:
+        i = qtile.groups.index(qtile.current_group)
+        qtile.current_window.togroup(qtile.groups[i + 1].name)
 
 
 def window_to_previous_screen(qtile):
@@ -157,7 +164,7 @@ def focus_group_on_screen(base, screen_index=None):
     def _inner(qtile):
         target_screen = screen_index if screen_index is not None else qtile.current_screen.index
         name = group_name(base, target_screen)
-        qtile.cmd_to_screen(target_screen)
+        qtile.to_screen(target_screen)
         qtile.groups_map[name].toscreen(target_screen)
 
     return _inner
@@ -229,7 +236,7 @@ def build_memory_widget(foreground, background):
         return widget.Memory(
             foreground=foreground,
             background=background,
-            mouse_callbacks={"Button1": lambda: qtile.cmd_spawn(myTerm + " -e htop")},
+            mouse_callbacks={"Button1": lambda: qtile.spawn(myTerm + " -e htop")},
             measure_mem="G",
             format="{MemUsed:.1f}/{MemTotal:.1f}",
             fmt="Mem: {}",
@@ -283,6 +290,7 @@ restart_binding = lazy.reload_config() if is_wayland() else lazy.restart()
 keys = [
     # The essentials
     Key([mod, "shift"], "Return", lazy.spawn("dm-run"), desc="Run Launcher"),
+    Key([mod, "shift"], "d", lazy.spawn("dtos-switch --toggle"), desc="Toggle DTOS Profile (Original / Pywal)"),
     Key([mod, "shift"], "r", restart_binding,
         desc="Reload config (Wayland) / Restart Qtile (X11)"),
     Key([mod, "shift"], "q", lazy.shutdown(), desc="Shutdown Qtile"),
@@ -311,7 +319,7 @@ keys = [
         lazy.function(focus_group_on_screen("VID")),
         lazy.spawn(myPrime),
         desc="Prime Video"),
-    Key([mod], "n",
+    Key([mod, "shift"], "n",
         lazy.function(focus_group_on_screen("VID")),
         lazy.spawn(myNetflix),
         desc="Netflix"),
@@ -334,7 +342,7 @@ keys = [
 
     # Focus specific monitor (0,1,2)
     Key([mod], "w", lazy.to_screen(0), desc="Focus monitor 1"),
-    Key([mod], "e", lazy.to_screen(1), desc="Focus monitor 2"),
+    Key([mod, "control"], "e", lazy.to_screen(1), desc="Focus monitor 2"),
     Key([mod], "r", lazy.to_screen(2), desc="Focus monitor 3"),
 
     # Cycle monitors
@@ -433,6 +441,7 @@ keys = [
         Key([], "a", lazy.spawn("dm-sounds"), desc="Choose ambient sound"),
         Key([], "b", lazy.spawn("dm-setbg"), desc="Set background"),
         Key([], "c", lazy.spawn("dtos-colorscheme"), desc="Color scheme"),
+        Key([], "d", lazy.spawn("dtos-switch"), desc="Switch DTOS profile"),
         Key([], "e", lazy.spawn("dm-confedit"), desc="Edit config file"),
         Key([], "i", lazy.spawn("dm-maim"), desc="Take screenshot"),
         Key([], "k", lazy.spawn("dm-kill"), desc="Kill processes"),
@@ -485,9 +494,9 @@ def set_default_layouts():
     for grp in qtile.groups_map.values():
         base = grp.name.split("-")[0]
         if base == "GFX":
-            grp.cmd_setlayout("floating")
+            grp.setlayout("floating")
         else:
-            grp.cmd_setlayout("bsp")
+            grp.setlayout("bsp")
 
 
 # ---------- Colors ----------
@@ -696,7 +705,7 @@ def init_widgets_list(visible_groups, include_systray=True):
             foreground=colors[1],
             background=colors[5],
             mouse_callbacks={
-                "Button1": lambda: qtile.cmd_spawn(myTerm + " -e yay -Syu")
+                "Button1": lambda: qtile.spawn(myTerm + " -e yay -Syu")
             },
             padding=5,
         ),
@@ -713,6 +722,7 @@ def init_widgets_list(visible_groups, include_systray=True):
         widget.KeyboardLayout(
             foreground=colors[1],
             background=colors[8],
+            configured_keyboards=["gb"],
             fmt="KB: {}",
             padding=5,
         ),

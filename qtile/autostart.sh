@@ -2,11 +2,21 @@
 # DTOS Qtile autostart (Dan wallpaper-persist fix v2)
 
 SESSION_TYPE="x11"
-[ "${XDG_SESSION_TYPE:-}" = "wayland" ] && SESSION_TYPE="wayland"
-[ -n "$WAYLAND_DISPLAY" ] && SESSION_TYPE="wayland"
+if [ "${XDG_SESSION_TYPE:-}" = "wayland" ] && [ -n "${WAYLAND_DISPLAY:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/${WAYLAND_DISPLAY:-}" ]; then
+    SESSION_TYPE="wayland"
+fi
 
-# Set keyboard layout explicitly (Qtile also has hook, but this is fine as backup)
-[ "$SESSION_TYPE" = "x11" ] && setxkbmap gb &
+if [ "$SESSION_TYPE" = "x11" ]; then
+    # Clear leftover Wayland variables from previous Hyprland session so OpenRGB doesn't crash-loop the Wooting USB interface
+    unset WAYLAND_DISPLAY
+    systemctl --user unset-environment WAYLAND_DISPLAY XDG_BACKEND MOZ_ENABLE_WAYLAND 2>/dev/null || true
+    systemctl --user import-environment DISPLAY XAUTHORITY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP 2>/dev/null || true
+    dbus-update-activation-environment --systemd DISPLAY XAUTHORITY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP 2>/dev/null || true
+    setxkbmap gb
+fi
+
+# Enable AMDGPU TearFree and 180Hz on both monitors to eliminate screen tearing
+[ "$SESSION_TYPE" = "x11" ] && xrandr --output DisplayPort-0 --mode 1920x1080 --rate 180.00 --set TearFree on --output DisplayPort-1 --mode 1920x1080 --rate 180.00 --right-of DisplayPort-0 --set TearFree on &
 
 # Start compositor if you use one (leave commented if another WM handles it)
 # picom &

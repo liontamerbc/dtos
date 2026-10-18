@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+# Switch between dtos-original (Classic DTOS static colors) and dtos-pywal (Dynamic Pywal colors)
+# Both profiles keep OpenRGB synced to the current wallpaper via Pywal.
+
+PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+PROFILES_DIR="$HOME/.config/profiles"
+ACTIVE_FILE="$PROFILES_DIR/.active"
+
+get_active() {
+    local qtile_target
+    qtile_target="$(readlink -f "$HOME/.config/qtile" 2>/dev/null || true)"
+    if [[ "$qtile_target" == *"dtos-original"* ]]; then
+        echo "dtos-original"
+        return
+    elif [[ "$qtile_target" == *"dtos-pywal"* ]]; then
+        echo "dtos-pywal"
+        return
+    fi
+    if [ -f "$ACTIVE_FILE" ]; then
+        local act
+        act="$(tr '[:upper:]' '[:lower:]' < "$ACTIVE_FILE" | tr -d '[:space:]')"
+        if [ "$act" = "dtos-original" ] || [ "$act" = "dtos-pywal" ]; then
+            echo "$act"
+            return
+        fi
+    fi
+    echo "dtos-pywal"
+}
+
+run_dmenu_picker() {
+    local current="$1"
+    local other="dtos-original"
+    local prompt="DTOS Profile ($current active):"
+    local opt1 opt2
+
+    if [ "$current" = "dtos-pywal" ]; then
+        opt1="dtos-original  (Switch to Classic DTOS Static Colors)"
+        opt2="dtos-pywal     (Keep Dynamic Pywal Colors) [ACTIVE]"
+    else
+        opt1="dtos-pywal     (Switch to Dynamic Pywal Colors)"
+        opt2="dtos-original  (Keep Classic DTOS Static Colors) [ACTIVE]"
+    fi
+
+    local dmenu_args=(-i -l 4 -p "$prompt")
+    if [ "$current" = "dtos-pywal" ] && [ -f "$HOME/.cache/wal/colors.sh" ]; then
+        : "${FZF_DEFAULT_OPTS:=}" "${LS_COLORS:=}"
+        # shellcheck disable=SC1090
+        . "$HOME/.cache/wal/colors.sh"
+        local bg="${background:-${color0:-#282c34}}"
+        local fg="${foreground:-${color7:-#dfdfdf}}"
+        local sb="${color4:-${color2:-#51afef}}"
+        local sf="${color15:-#ffffff}"
+        dmenu_args=(-i -l 4 -nb "$bg" -nf "$fg" -sb "$sb" -sf "$sf" -p "$prompt")
+    else
+        dmenu_args=(-i -l 4 -nb "#282c34" -nf "#dfdfdf" -sb "#c678dd" -sf "#1c1f24" -p "$prompt")
+    fi
+
+    local choice=""
+    if [ -n "${DISPLAY:-}" ] && command -v dmenu >/dev/null 2>&1; then
+        sleep 0.08
+        choice="$(printf '%s\n%s\n' "$opt1" "$opt2" | dmenu "${dmenu_args[@]}" || true)"
+    elif command -v rofi >/dev/null 2>&1; then
+        choice="$(printf '%s\n%s\n' "$opt1" "$opt2" | rofi -dmenu -i -p "$prompt" || true)"
+    elif [ -t 0 ] && command -v fzf >/dev/null 2>&1; then
+        choice="$(printf '%s\n%s\n' "$opt1" "$opt2" | fzf --prompt="$prompt " --height=25% --layout=reverse || true)"
+    fi
+
+    if [[ "$choice" == dtos-original* ]]; then
+        echo "dtos-original"
+    elif [[ "$choice" == dtos-pywal* ]]; then
+        echo "dtos-pywal"
+    fi
+}
+
+apply_profile() {
+    local target="$1"
+    local target_dir="$PROFILES_DIR/$target"
+
+    if [ ! -d "$target_dir" ]; then
+        echo "Error: Profile directory $target_dir not found." >&2
+        exit 1
+    fi
+
+    # 1. Update ~/.config symlinks for DTOS components
+    for item in alacritty awesome dmscripts qtile shell-color-scripts; do
+        if [ -e "$target_dir/$item" ]; then
+            if [ -L "$HOME/.config/$item" ] || [ ! -e "$HOME/.config/$item" ]; then
+                rm -f "$HOME/.config/$item"
+                ln -s "$target_dir/$item" "$HOME/.config/$item"
+            fi
+        fi
+    done
+
+    # Keep ~/.config/wal linked to dtos-pywal/wal so postrun RGB sync works in both profiles
+    if [ -d "$PROFILES_DIR/dtos-pywal/wal" ]; then
+        if [ -L "$HOME/.config/wal" ] || [ ! -e "$HOME/.config/wal" ]; then
+            rm -f "$HOME/.config/wal"
+            ln -s "$PROFILES_DIR/dtos-pywal/wal" "$HOME/.config/wal"
+        fi
+    fi
+
+    # 2. Record active profile
+    printf '%s\n' "$target" > "$ACTIVE_FILE"
+
+    # 3. Update Alacritty live colors so already-open terminals switch immediately
+    if [ "$target" = "dtos-original" ]; then
+        mkdir -p "$HOME/.cache/wal"
+        cat > "$HOME/.cache/wal/colors-alacritty.toml" <<'EOF'
+[colors.primary]
+background = "#282a36"
+foreground = "#f8f8f2"
+
+[colors.cursor]
+cursor = "#f8f8f2"
+text = "#282a36"
+
+[colors.selection]
+background = "#6272a4"
+text = "#f8f8f2"
+
+[colors.normal]
+black = "#21222c"
+red = "#ff5555"
+green = "#50fa7b"
+yellow = "#f1fa8c"
+blue = "#bd93f9"
+magenta = "#ff79c6"
+cyan = "#8be9fd"
+white = "#f8f8f2"
+
+[colors.bright]
+black = "#6272a4"
+red = "#ff6e6e"
+green = "#69ff94"
+yellow = "#ffffa5"
+blue = "#d6acff"
+magenta = "#ff92df"
+cyan = "#a4ffff"
+white = "#ffffff"
+EOF
+    else
+        # Re-generate pywal cache from current Qtile wallpaper
+        local wall_img=""
+        if [ -s "$HOME/.cache/wall_qtile" ]; then
+            wall_img="$(head -n 1 "$HOME/.cache/wall_qtile")"
+        elif [ -s "$HOME/.cache/wall" ]; then
+            wall_img="$(head -n 1 "$HOME/.cache/wall")"
+        fi
+        if [ -n "$wall_img" ] && [ -f "$wall_img" ] && command -v wal >/dev/null 2>&1; then
+            wal -n -q -i "$wall_img" -o "$HOME/.config/wal/postrun" >/dev/null 2>&1 || true
+        elif command -v wal >/dev/null 2>&1; then
+            wal -R -n -q -o "$HOME/.config/wal/postrun" >/dev/null 2>&1 || true
+        fi
+    fi
+
+    touch "$PROFILES_DIR/dtos-original/alacritty/alacritty.toml" "$PROFILES_DIR/dtos-pywal/alacritty/alacritty.toml" 2>/dev/null || true
+
+    # 4. Reload Qtile so bar & window borders update immediately
+    if pgrep -x qtile >/dev/null 2>&1 && command -v qtile >/dev/null 2>&1; then
+        qtile cmd-obj -o cmd -f reload_config >/dev/null 2>&1 || true
+    fi
+
+    # 5. Notify user
+    if command -v notify-send >/dev/null 2>&1; then
+        if [ "$target" = "dtos-original" ]; then
+            notify-send "DTOS Profile: Original" "Switched to Classic DTOS static colors (RGB synced with wallpaper)."
+        else
+            notify-send "DTOS Profile: Pywal" "Switched to Dynamic Pywal colors."
+        fi
+    fi
+
+    echo "Active DTOS profile: $target"
+}
+
+CURRENT="$(get_active)"
+
+case "${1:-}" in
+    -a|--active)
+        echo "$CURRENT"
+        exit 0
+        ;;
+    -l|--list)
+        printf "dtos-original\ndtos-pywal\n"
+        exit 0
+        ;;
+    -t|--toggle|toggle)
+        if [ "$CURRENT" = "dtos-pywal" ]; then
+            apply_profile "dtos-original"
+        else
+            apply_profile "dtos-pywal"
+        fi
+        exit 0
+        ;;
+    dtos-original|original)
+        apply_profile "dtos-original"
+        exit 0
+        ;;
+    dtos-pywal|pywal)
+        apply_profile "dtos-pywal"
+        exit 0
+        ;;
+    -h|--help)
+        echo "Usage: dtos-switch [dtos-original|dtos-pywal|--toggle|--active|--list]"
+        exit 0
+        ;;
+    "")
+        CHOSEN="$(run_dmenu_picker "$CURRENT")"
+        if [ -n "$CHOSEN" ]; then
+            apply_profile "$CHOSEN"
+        fi
+        exit 0
+        ;;
+    *)
+        echo "Unknown option: $1" >&2
+        echo "Usage: dtos-switch [dtos-original|dtos-pywal|--toggle|--active|--list]" >&2
+        exit 1
+        ;;
+esac
