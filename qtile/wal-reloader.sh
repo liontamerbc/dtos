@@ -15,7 +15,7 @@ while :; do
         mtime=$(get_mtime 2>/dev/null || true)
         if [ -n "${mtime:-}" ] && [ "$mtime" != "$last_mtime" ]; then
             last_mtime="$mtime"
-            qtile cmd-obj -o cmd -f reload_config >/dev/null 2>&1 || true
+            qtile cmd-obj -o cmd -f fire_user_hook -a recolor_bar >/dev/null 2>&1 || true
         fi
     fi
     sleep 2

@@ -70,9 +70,9 @@ run_wal() {
   printf "%s\n" "$img" >"$HOME/.cache/wall_qtile"
   printf "%s\n" "$img" >"$HOME/.cache/wall"
 
-  # Reload Qtile so widgets refresh immediately (best-effort)
+  # Recolor Qtile widgets in-place immediately (zero flicker)
   if command -v qtile >/dev/null 2>&1; then
-    qtile cmd-obj -o cmd -f reload_config >/dev/null 2>&1 || true
+    qtile cmd-obj -o cmd -f fire_user_hook -a recolor_bar >/dev/null 2>&1 || true
   fi
 }
 

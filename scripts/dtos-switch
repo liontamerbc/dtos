@@ -178,9 +178,9 @@ EOF
         fi
     done
 
-    # 4. Reload Qtile so bar & window borders update immediately
+    # 4. Recolor Qtile bar & window borders in-place immediately (zero flicker)
     if pgrep -x qtile >/dev/null 2>&1 && command -v qtile >/dev/null 2>&1; then
-        qtile cmd-obj -o cmd -f reload_config >/dev/null 2>&1 || true
+        qtile cmd-obj -o cmd -f fire_user_hook -a recolor_bar >/dev/null 2>&1 || true
     fi
 
     # 5. Notify user

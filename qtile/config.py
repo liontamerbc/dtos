@@ -555,6 +555,80 @@ def load_wal_colors():
 colors = load_wal_colors()
 
 
+@hook.subscribe.user("recolor_bar")
+def recolor_bar_in_place():
+    """Update top bar widgets and window borders in-place without unmapping the bar (zero flicker)."""
+    try:
+        qtile_cfg = os.path.realpath(os.path.expanduser("~/.config/qtile"))
+        if "dtos-original" in qtile_cfg:
+            raw_colors = FALLBACK_COLORS
+        else:
+            raw_colors = load_wal_colors()
+        c = [x[0] if isinstance(x, list) else x for x in raw_colors]
+
+        for screen in qtile.screens:
+            bar_obj = screen.top
+            if not bar_obj or not hasattr(bar_obj, "widgets"):
+                continue
+            bar_obj.background = c[0]
+            wlist = bar_obj.widgets[:-14]
+            rlist = bar_obj.widgets[-14:]
+
+            if len(wlist) >= 6:
+                wlist[0].background = c[0]
+                wlist[0].foreground = c[2]
+
+                gb = wlist[1]
+                gb.background = c[0]
+                gb.foreground = c[2]
+                gb.active = c[2]
+                gb.inactive = c[7]
+                gb.highlight_color = [c[1], c[1]]
+                gb.this_current_screen_border = c[6]
+                gb.this_screen_border = c[4]
+                gb.other_current_screen_border = c[6]
+                gb.other_screen_border = c[4]
+
+                wlist[2].background = c[0]
+                wlist[3].foreground = c[2]
+                wlist[3].background = c[0]
+                wlist[4].background = c[0]
+                wlist[5].foreground = c[6]
+                wlist[5].background = c[0]
+                for extra_w in wlist[6:]:
+                    extra_w.background = c[0]
+
+            for idx, c_idx in enumerate(range(3, 10)):
+                pl = rlist[idx * 2]
+                st = rlist[idx * 2 + 1]
+                prev_c = c[0] if c_idx == 3 else c[c_idx - 1]
+                pl.background = prev_c
+                pl.foreground = c[c_idx]
+                st.foreground = c[1]
+                st.background = c[c_idx]
+
+            for w in bar_obj.widgets:
+                try:
+                    if hasattr(w, "layout") and w.layout is not None and hasattr(w, "foreground"):
+                        w.layout.colour = w.foreground
+                    w.draw()
+                except Exception:
+                    pass
+            bar_obj.draw()
+
+        for grp in qtile.groups:
+            for lay in grp.layouts:
+                if hasattr(lay, "border_focus"):
+                    lay.border_focus = c[6]
+                if hasattr(lay, "border_normal"):
+                    lay.border_normal = c[1]
+            if grp.screen:
+                grp.layout_all()
+    except Exception as err:
+        logger.warning("In-place bar recolor failed: %s", err)
+
+
+
 # ---------- Layouts ----------
 
 layout_theme = dict(
