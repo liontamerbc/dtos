@@ -475,6 +475,6 @@ refresh_icon_theme() {
 
 refresh_icon_theme "${theme_to_recolor:-Papirus-Dark}"
 
-# Reload Qtile so widgets pick up the fresh palette.
-timeout 2 qtile cmd-obj -o cmd -f reload_config >/dev/null 2>&1 || true
+# Recolor Qtile bar and window borders in-place (zero flicker).
+timeout 2 qtile cmd-obj -o cmd -f fire_user_hook -a recolor_bar >/dev/null 2>&1 || true
 
