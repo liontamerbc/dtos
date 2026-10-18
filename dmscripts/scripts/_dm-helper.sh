@@ -11,6 +11,25 @@
 
 set -euo pipefail
 
+# Hard block: if DM_BLOCK is set, bail immediately so stray auto-launches do nothing.
+[ -n "${DM_BLOCK:-}" ] && exit 0
+
+# Log invocations to help trace unwanted auto-launches (e.g., dm-wifi popping up)
+{
+    script_name="$(basename "${0:-unknown}")"
+    parent_cmd=$(ps -o comm= -p "${PPID:-0}" 2>/dev/null || echo "unknown")
+    parent_line=$(ps -o pid=,ppid=,cmd= -p "${PPID:-0}" 2>/dev/null | tr -s ' ')
+    grandpid=$(ps -o ppid= -p "${PPID:-0}" 2>/dev/null | tr -d ' ' || echo "")
+    grand_line=
+    if [ -n "$grandpid" ]; then
+        grand_line=$(ps -o pid=,ppid=,cmd= -p "$grandpid" 2>/dev/null | tr -s ' ')
+    fi
+    tree=$(pstree -pal "${PPID:-0}" 2>/dev/null | head -n 1)
+    printf '%s script=%s ppid=%s parent=%s args="%s" pstree=%s parent_line=\"%s\" grand_line=\"%s\"\n' \
+        "$(date '+%F %T')" "$script_name" "${PPID:-?}" "$parent_cmd" "$*" "$tree" "$parent_line" "$grand_line" \
+        >>/tmp/dmscripts.trace
+} || true
+
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     echo "This is a helper-script it does not do anything on its own."
     exit 1
@@ -40,6 +59,53 @@ err() {
 # Simple check for an available display (X11 or Wayland)
 display_available() {
     [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]
+}
+
+# Use the current pywal palette for dmenu if available.
+apply_pywal_menu_colors() {
+    # Allow opting out by setting DMENU_PYWAL=0.
+    if [ "${DMENU_PYWAL:-1}" != "1" ]; then
+        return
+    fi
+
+    # Avoid touching non-dmenu launchers.
+    if [ -z "${DMENU:-}" ] || [[ "${DMENU}" != *dmenu* ]]; then
+        return
+    fi
+
+    local wal_colors="$HOME/.cache/wal/colors.sh"
+    [ -f "$wal_colors" ] || return
+
+    : "${FZF_DEFAULT_OPTS:=}" "${LS_COLORS:=}"
+    # shellcheck disable=SC1090
+    . "$wal_colors"
+
+    local bg="${background:-${color0:-}}"
+    local fg="${foreground:-${color7:-}}"
+    local accent="${color4:-${color2:-${color1:-}}}"
+    local sel_fg="${color15:-${fg}}"
+
+    # Require the basics so we don't emit an incomplete command.
+    if [ -z "$bg" ] || [ -z "$fg" ] || [ -z "$accent" ]; then
+        return
+    fi
+
+    # Rebuild the DMENU command so -p stays at the end and wal colors land before it.
+    local prompt_flag="-p"
+    local parts=()
+    read -r -a parts <<<"${DMENU}"
+
+    local rebuilt=()
+    for part in "${parts[@]}"; do
+        if [ "$part" = "-p" ] || [ "$part" = "--prompt" ]; then
+            prompt_flag="$part"
+            break
+        fi
+        rebuilt+=("$part")
+    done
+
+    # Build without extra quoting so colors pass cleanly to dmenu/rofi.
+    DMENU="${rebuilt[*]} -nb ${bg} -nf ${fg} -sb ${accent} -sf ${sel_fg} ${prompt_flag}"
 }
 
 #function() {
@@ -136,20 +202,7 @@ Type $(basename "$0") -h for help" >/dev/stderr
     done
     echo "Did not find menu argument, using \${DMENU}" >/dev/stderr
     # shellcheck disable=SC2153
-    local _dmenu="${DMENU}"
-    local _dmenu_bin="${_dmenu%% *}"
-
-    # If there is no GUI display, prefer the terminal menu (fzf) when available.
-    if ! display_available || ! command -v "${_dmenu_bin}" >/dev/null 2>&1; then
-        local _fmenu="${FMENU:-fzf}"
-        local _fmenu_bin="${_fmenu%% *}"
-        if command -v "${_fmenu_bin}" >/dev/null 2>&1; then
-            echo "${_fmenu}"
-            return 0
-        fi
-    fi
-
-    echo "${_dmenu}"
+    echo "${DMENU}"
 }
 
 ####################
@@ -171,10 +224,26 @@ source_dmscripts_configs() {
     # this is to ensure this variable is defined
     XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-}"
 
-    [ -f "../config/config" ] && source "../config/config" && return 0
-    [ -z "$XDG_CONFIG_HOME" ] && [ -f "$HOME/.config/dmscripts/config" ] && source "$HOME/.config/dmscripts/config" && return 0
-    [ -n "$XDG_CONFIG_HOME" ] && [ -f "$XDG_CONFIG_HOME/dmscripts/config" ] && source "$XDG_CONFIG_HOME/dmscripts/config" && return 0
+    if [ -f "../config/config" ]; then
+        source "../config/config"
+        apply_pywal_menu_colors
+        return 0
+    fi
+
+    if [ -z "$XDG_CONFIG_HOME" ] && [ -f "$HOME/.config/dmscripts/config" ]; then
+        source "$HOME/.config/dmscripts/config"
+        apply_pywal_menu_colors
+        return 0
+    fi
+
+    if [ -n "$XDG_CONFIG_HOME" ] && [ -f "$XDG_CONFIG_HOME/dmscripts/config" ]; then
+        source "$XDG_CONFIG_HOME/dmscripts/config"
+        apply_pywal_menu_colors
+        return 0
+    fi
+
     [ -f "/etc/dmscripts/config" ] && source "/etc/dmscripts/config"
+    apply_pywal_menu_colors
 }
 
 # checks the base configuration file and compares it with the local configuration file

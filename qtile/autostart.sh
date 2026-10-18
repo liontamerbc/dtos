@@ -1,8 +1,11 @@
 #!/bin/sh
 # DTOS Qtile autostart (Dan wallpaper-persist fix v2)
 
-# Set keyboard layout explicitly (Qtile also has hook, but this is fine as backup)
-setxkbmap gb &
+# Clear leftover Wayland variables from previous Hyprland session so OpenRGB doesn't crash-loop the Wooting USB interface
+systemctl --user unset-environment WAYLAND_DISPLAY XDG_BACKEND MOZ_ENABLE_WAYLAND 2>/dev/null || true
+systemctl --user import-environment DISPLAY XAUTHORITY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP 2>/dev/null || true
+dbus-update-activation-environment --systemd DISPLAY XAUTHORITY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP 2>/dev/null || true
+setxkbmap gb
 
 # Start compositor (picom config is installed by DTOS-Original)
 picom --config "$HOME/.config/picom/picom.conf" &
@@ -24,9 +27,11 @@ dunst &
 WALL_QTILE="$HOME/.cache/wall_qtile"
 WALL_GENERIC="$HOME/.cache/wall"
 WALL_DIR="/usr/share/backgrounds/dtos-backgrounds"
+CHOSEN_WALL=""
 
 set_wall() {
     [ -z "$1" ] && return 1
+    CHOSEN_WALL="$1"
     if command -v xwallpaper >/dev/null 2>&1; then
         xwallpaper --stretch "$1" &
     elif command -v feh >/dev/null 2>&1; then
@@ -45,6 +50,11 @@ else
     if [ -d "$WALL_DIR" ]; then
         set_wall "$(find "$WALL_DIR" -type f | shuf -n 1)"
     fi
+fi
+
+# Generate pywal cache for RGB sync even in dtos-original
+if command -v wal >/dev/null 2>&1 && [ -n "$CHOSEN_WALL" ] && [ -f "$CHOSEN_WALL" ]; then
+    wal -n -q -i "$CHOSEN_WALL" -o "$HOME/.config/wal/postrun" >/dev/null 2>&1 || true
 fi
 
 # If you prefer nitrogen instead of xwallpaper, comment the whole block above

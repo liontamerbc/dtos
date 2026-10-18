@@ -62,6 +62,13 @@ if [ -f "$BASE_DIR/dmscripts/scripts/_dm-helper.sh" ]; then
     chmod +x "$HOME/.local/bin/_dm-helper.sh"
 fi
 
+# dtos-switch
+if [ -f "$BASE_DIR/scripts/dtos-switch" ]; then
+    info "Installing dtos-switch -> ~/.local/bin/"
+    cp "$BASE_DIR/scripts/dtos-switch" "$HOME/.local/bin/dtos-switch"
+    chmod +x "$HOME/.local/bin/dtos-switch"
+fi
+
 # 3) QTILE CONFIG
 mkdir -p "$HOME/.config/qtile"
 

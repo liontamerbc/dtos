@@ -1,80 +1,377 @@
-#!/usr/bin/env bash
-DMTERM="st -e"
-DMENU="dmenu -i -l 20 -sb '#ff79c6' -p"
-#
-# Script name: dm-setbg
-# Description: A wallpaper setting utility using dmenu, imv and swaybg/xwallpaper
-# Dependencies: dmenu, fzf, rofi, xwallpaper or swaybg, imv, betterlockscreen
-# GitLab: https://www.gitlab.com/dwt1/dmscripts
-# License: https://www.gitlab.com/dwt1/dmscripts/LICENSE
-# Contributors: Murtaza Udaipurwala
-#               HostGrady
-#               Simon Ingelsson
-#               Derek Taylor
+#!/bin/sh
+# DTOS-style wallpaper script (fixed for Qtile & Awesome)
+#  - Menu: Set / Random / Exit (via dmenu)
+#  - Set: open sxiv/fzf/dmenu picker
+#  - Random: pick random wallpaper
+#  - Per-WM folders: Awesome vs Qtile
+#  - Qtile updates ~/.cache/wall_qtile
+#  - Awesome updates ~/.cache/wall_awesome
 
-# Set with the flags "-e", "-u","-o pipefail" cause the script to fail
-# if certain things happen, which is a good thing.  Otherwise, we can
-# get hidden bugs that are hard to discover.
-set -euo pipefail
+BASE_DIR="/usr/share/backgrounds/dtos-backgrounds"
+WALL_DIR="$BASE_DIR"
+FORCE_DMENU="${DM_SETBG_FORCE_DMENU:-0}"
+DMENU_COLOR_BG=""
+DMENU_COLOR_FG=""
+DMENU_COLOR_ACCENT=""
+DMENU_COLOR_SEL_FG=""
+BEMENU_CUSTOM_OPTS=""
+BEMENU_THEME_NB=""
+BEMENU_THEME_NF=""
+BEMENU_THEME_SB=""
+BEMENU_THEME_SF=""
+BEMENU_THEME_HB=""
+BEMENU_THEME_HF=""
+BEMENU_THEME_BDR=""
 
-# shellcheck disable=SC1091
-source ./_dm-helper.sh 2>/dev/null || source _dm-helper.sh 2>/dev/null
+# Apply pywal colors to dmenu if wal has been run.
+apply_wal_dmenu() {
+    [ -f "$HOME/.config/dmscripts/config" ] && . "$HOME/.config/dmscripts/config" 2>/dev/null || true
+    # Allow opting out via DMENU_PYWAL=0 to keep a static theme.
+    if [ "${DMENU_PYWAL:-1}" != "1" ]; then
+        return
+    fi
 
-source_dmscripts_configs
+    wal_colors="$HOME/.cache/wal/colors.sh"
+    [ -f "$wal_colors" ] || return
+    # shellcheck disable=SC1090
+    . "$wal_colors"
 
-if configs_are_different; then
-    echo "$(date): configs are different" >>"$DM_CONFIG_DIFF_LOGFILE"
-    sleep 1
+    bg="${background:-${color0:-}}"
+    fg="${foreground:-${color7:-}}"
+    accent="${color4:-${color2:-${color1:-}}}"
+    sel_fg="${color15:-${fg}}"
+
+    if [ -z "$bg" ] || [ -z "$fg" ] || [ -z "$accent" ]; then
+        return
+    fi
+    DMENU_COLOR_BG="$bg"
+    DMENU_COLOR_FG="$fg"
+    DMENU_COLOR_ACCENT="$accent"
+    DMENU_COLOR_SEL_FG="$sel_fg"
+}
+apply_wal_dmenu
+
+log_debug() {
+    [ -n "$DM_SETBG_DEBUG" ] && printf 'dm-setbg DEBUG: %s\n' "$*" >&2
+}
+
+FORCE_TTY_MENU=0
+if [ "$1" = "--tty" ]; then
+    FORCE_TTY_MENU=1
+    shift
 fi
 
-# Set wallpaper using either xwallpaper or swaybf
-setbg() {
-    case "$XDG_SESSION_TYPE" in
-    'x11') xwallpaper --stretch "$1" ;;
-    'wayland') swaybg -m "stretch" -i "$1" ;;
-    *) err "Unknown display server" ;;
-    esac
+has_gui() {
+    [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]
 }
 
-main() {
-    choice="$(printf "Set\nRandom\nExit" | ${MENU} "What would you like to do?")"
-    case "$choice" in
-    "Set")
-        # shellcheck disable=SC2154
-        if [ "$use_imv" = 0 ]; then
-            # shellcheck disable=SC2154
-            wallpaper="$(sxiv -t -o "${setbg_dir}")"
-            echo "$wallpaper" >"$HOME"/.cache/wall
-            setbg "$wallpaper"
-            betterlockscreen -u "$(cat "$HOME"/.cache/wall)" || echo "Betterlockscreen image could not be created."
-        else
-            # Read each line printed to stdin, imv behaves weird
-            # We also ignore a shellcheck issue because it's a bug
-            # shellcheck disable=SC2154
-            imv "${setbg_dir}" | while read -r LINE; do
-                pidof "swaybg" && killall "swaybg"
-                pidof "xwallpaper" && killall "xwallpaper"
-                setbg "$LINE" & # Sets the wallpaper and frees it from the process
-                notify-send "Wallpaper has been updated" "$LINE is the current wallpaper, edit your window manager config if you would like this to persist on reboot"
-            done
+has_x11() {
+    [ -n "$DISPLAY" ]
+}
+
+x_display_available() {
+    [ -n "$DISPLAY" ] || return 1
+    if command -v xdpyinfo >/dev/null 2>&1; then
+        xdpyinfo >/dev/null 2>&1
+    elif command -v xset >/dev/null 2>&1; then
+        xset -q >/dev/null 2>&1
+    else
+        # If we cannot probe, assume available and let callers handle errors.
+        return 0
+    fi
+}
+
+can_use_x11() {
+    [ -n "$DISPLAY" ] || return 1
+    if command -v xdpyinfo >/dev/null 2>&1; then
+        xdpyinfo >/dev/null 2>&1
+    elif command -v xset >/dev/null 2>&1; then
+        xset -q >/dev/null 2>&1
+    else
+        return 0
+    fi
+}
+
+has_wayland() {
+    [ "$XDG_SESSION_TYPE" = "wayland" ] && [ -n "$WAYLAND_DISPLAY" ] && [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$WAYLAND_DISPLAY" ]
+}
+
+has_tty() {
+    [ -t 0 ] || [ -t 1 ]
+}
+
+load_bemenu_theme() {
+    # If user provided custom opts, use them.
+    if [ -n "$DM_SETBG_BEMENU_OPTS" ]; then
+        BEMENU_CUSTOM_OPTS="$DM_SETBG_BEMENU_OPTS"
+        return
+    fi
+
+    # Default DT/Dracula-ish palette (matches your dmenu styling).
+    BEMENU_THEME_NB="#282a36"
+    BEMENU_THEME_NF="#f8f8f2"
+    BEMENU_THEME_SB="#bd93f9"
+    BEMENU_THEME_SF="#282a36"
+    BEMENU_THEME_HB="#bd93f9"
+    BEMENU_THEME_HF="#282a36"
+    BEMENU_THEME_BDR="#bd93f9"
+
+    # Auto-theme from wal colors if available.
+    if [ -f "$HOME/.cache/wal/colors.sh" ]; then
+        # shellcheck disable=SC1091
+        . "$HOME/.cache/wal/colors.sh"
+        # dmenu-ish palette: normal bg/fg from color0/color7, selected bg/fg from color4/color0.
+        BEMENU_THEME_NB="$color0"
+        BEMENU_THEME_NF="$color7"
+        BEMENU_THEME_SB="$color4"
+        BEMENU_THEME_SF="$color0"
+        BEMENU_THEME_HB="$color4"
+        BEMENU_THEME_HF="$color0"
+        BEMENU_THEME_BDR="$color4"
+    fi
+}
+
+pick_terminal() {
+    for term in alacritty kitty foot wezterm wezterm-gui gnome-terminal konsole xterm st; do
+        if command -v "$term" >/dev/null 2>&1; then
+            printf '%s\n' "$term"
+            return
         fi
+    done
+}
+
+apply_pywal() {
+    img="$1"
+    [ -z "$img" ] && return
+    # Skip when no graphical session is present (avoids xrdb errors on pure TTY).
+    [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ] && return
+    if command -v wal >/dev/null 2>&1; then
+        postrun="$HOME/.config/wal/postrun"
+        set -- wal -n -q -i "$img"
+        [ -x "$postrun" ] && set -- "$@" -o "$postrun"
+        if has_x11; then
+            "$@" >/dev/null 2>&1
+        else
+            # Wayland-only sessions (or broken X11) use -e to skip xrdb.
+            "$@" -e >/dev/null 2>&1
+        fi
+    fi
+    # Reload Qtile so widgets pick up the fresh wal palette immediately.
+    if command -v qtile >/dev/null 2>&1; then
+        qtile cmd-obj -o cmd -f reload_config >/dev/null 2>&1 || true
+    fi
+}
+
+run_dmenu() {
+    prompt="$1"
+    if [ -n "$DMENU_COLOR_BG" ] && [ -n "$DMENU_COLOR_FG" ] && [ -n "$DMENU_COLOR_ACCENT" ] && [ -n "$DMENU_COLOR_SEL_FG" ]; then
+        dmenu -i -l 10 -nb "$DMENU_COLOR_BG" -nf "$DMENU_COLOR_FG" -sb "$DMENU_COLOR_ACCENT" -sf "$DMENU_COLOR_SEL_FG" -p "$prompt"
+    else
+        dmenu -i -l 10 -p "$prompt"
+    fi
+}
+
+run_bemenu() {
+    prompt="$1"
+    list_lines="${2:-10}"
+    if [ -n "$BEMENU_CUSTOM_OPTS" ]; then
+        # shellcheck disable=SC2086
+        BEMENU_BACKEND=wayland bemenu -i -l "$list_lines" -p "$prompt" $BEMENU_CUSTOM_OPTS
+    else
+        BEMENU_BACKEND=wayland bemenu -i -l "$list_lines" -p "$prompt" \
+            --nb "$BEMENU_THEME_NB" --nf "$BEMENU_THEME_NF" \
+            --sb "$BEMENU_THEME_SB" --sf "$BEMENU_THEME_SF" \
+            --hb "$BEMENU_THEME_HB" --hf "$BEMENU_THEME_HF" \
+            --bdr "$BEMENU_THEME_BDR" --line-height 26 --border 2
+    fi
+}
+
+run_menu() {
+    kind="$1"
+    prompt="$2"
+    case "$kind" in
+    dmenu)
+        run_dmenu "$prompt"
         ;;
-    "Random")
-        valid_paper="No"
-        until [ "$valid_paper" = "Yes" ]; do
-            pidof "swaybg" && killall "swaybg"
-            pidof "xwallpaper" && killall "xwallpaper"
-            wallpaper="$(find "${setbg_dir}" -type f | shuf -n 1)"
-            setbg "$wallpaper" &
-            echo "$wallpaper" >"$HOME/.cache/wall"
-            valid_paper="$(printf "Yes\nNo" | ${MENU} "Do you like the new wallpaper?")"
-        done
-            betterlockscreen -u "$(cat "$HOME"/.cache/wall)" || echo "Betterlockscreen image could not be created."
+    wofi)
+        wofi --dmenu --prompt "$prompt"
         ;;
-    "Exit") echo "Program terminated" && exit 1 ;;
-    *) err "Invalid choice" ;;
+    bemenu)
+        run_bemenu "$prompt"
+        ;;
+    rofi)
+        rofi -dmenu -i -p "$prompt"
+        ;;
+    fzf)
+        fzf --prompt="$prompt " --layout=reverse --height=40%
+        ;;
     esac
 }
 
-MENU="$(get_menu_program "$@")"
-[[ "${BASH_SOURCE[0]}" == "${0}" ]] && main
+# Detect session and choose per-WM wallpaper folder
+ses_str="$(printf '%s
+' "$XDG_CURRENT_DESKTOP" "$DESKTOP_SESSION")"
+if printf '%s
+' "$ses_str" | grep -qi 'qtile'; then
+    if [ -d "$BASE_DIR/qtile" ]; then
+        WALL_DIR="$BASE_DIR/qtile"
+    fi
+elif printf '%s
+' "$ses_str" | grep -qi 'awesome'; then
+    if [ -d "$BASE_DIR/awesome" ]; then
+        WALL_DIR="$BASE_DIR/awesome"
+    fi
+fi
+log_debug "DISPLAY=$DISPLAY WAYLAND_DISPLAY=$WAYLAND_DISPLAY PATH=$PATH"
+log_debug "Menu preference: dmenu (if DISPLAY) -> wofi -> bemenu -> rofi -> fzf"
+log_debug "x_display_available: $(x_display_available && echo yes || echo no), force_dmenu=$FORCE_DMENU"
+load_bemenu_theme
+
+# Require a graphical session; otherwise, avoid "cannot open display" spam.
+if ! has_gui; then
+    printf '%s\n' "dm-setbg: no DISPLAY or WAYLAND_DISPLAY detected; run inside X11/Wayland." >&2
+    exit 1
+fi
+
+# Helper: apply wallpaper and update per-WM cache
+set_bg() {
+    img="$1"
+    [ -z "$img" ] && return 1
+
+    session_type="x11"
+    has_wayland && session_type="wayland"
+
+    if [ "$session_type" = "wayland" ]; then
+        # Try Qtile's built-in wallpaper command first (works on Wayland)
+        if command -v qtile >/dev/null 2>&1; then
+            qtile cmd-obj -o screen 0 -f set_wallpaper -a "['$img','fill']" >/dev/null 2>&1 || true
+            qtile cmd-obj -o screen 1 -f set_wallpaper -a "['$img','fill']" >/dev/null 2>&1 || true
+        fi
+
+        if command -v swaybg >/dev/null 2>&1; then
+            pkill swaybg 2>/dev/null
+            swaybg -m fill -i "$img" &
+        elif command -v swww >/dev/null 2>&1; then
+            pgrep -x swww-daemon >/dev/null 2>&1 || swww-daemon &
+            swww img "$img" --transition-type simple --transition-fps 30 &
+        else
+            printf '%s\n' "No Wayland wallpaper setter found (install swaybg or swww)" >&2
+            return 1
+        fi
+    else
+        # Apply wallpaper via xwallpaper or feh on X11
+        if has_x11 && can_use_x11 && command -v xwallpaper >/dev/null 2>&1; then
+            xwallpaper --stretch "$img" 2>/dev/null
+        elif has_x11 && can_use_x11 && command -v feh >/dev/null 2>&1; then
+            feh --bg-fill "$img" 2>/dev/null
+        elif has_x11 && can_use_x11; then
+            xsetroot -solid black 2>/dev/null
+        else
+            printf '%s\n' "dm-setbg: no reachable X11 display; skipping X wallpaper setter." >&2
+            return 1
+        fi
+    fi
+
+    # Update persistent cache per WM
+    mkdir -p "$HOME/.cache"
+    printf '%s\n' "$img" > "$HOME/.cache/wall"
+    ses_str="$(printf '%s\n' "$XDG_CURRENT_DESKTOP" "$DESKTOP_SESSION")"
+    if printf '%s\n' "$ses_str" | grep -qi 'qtile' || pgrep -x qtile >/dev/null 2>&1; then
+        printf '%s\n' "$img" > "$HOME/.cache/wall_qtile"
+    elif printf '%s\n' "$ses_str" | grep -qi 'awesome' || pgrep -x awesome >/dev/null 2>&1; then
+        printf '%s\n' "$img" > "$HOME/.cache/wall_awesome"
+    fi
+
+    # Regenerate theme so GTK/Qt widgets follow the new wallpaper colors.
+    apply_pywal "$img"
+}
+
+# Quick random mode: dm-setbg -r / --random
+if [ "$1" = "-r" ] || [ "$1" = "--random" ]; then
+    img="$(find "$WALL_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) 2>/dev/null | shuf -n 1)"
+    [ -z "$img" ] && exit 0
+    set_bg "$img"
+    exit 0
+fi
+
+# Top-level menu
+menu_kind=""
+if has_gui; then
+    if has_wayland; then
+        if command -v dmenu >/dev/null 2>&1 && { [ "$FORCE_DMENU" -eq 1 ] || x_display_available; }; then
+            # Prefer dmenu via Xwayland when available and reachable.
+            menu_kind="dmenu"
+        elif command -v wofi >/dev/null 2>&1; then
+            menu_kind="wofi"
+        elif command -v bemenu >/dev/null 2>&1; then
+            # bemenu on wayland with wal-themed colors.
+            menu_kind="bemenu"
+        elif command -v rofi >/dev/null 2>&1; then
+            menu_kind="rofi"
+        fi
+    fi
+    if [ -z "$menu_kind" ] && command -v dmenu >/dev/null 2>&1 && { [ "$FORCE_DMENU" -eq 1 ] || x_display_available; }; then
+        menu_kind="dmenu"
+    elif [ -z "$menu_kind" ] && command -v fzf >/dev/null 2>&1; then
+        menu_kind="fzf"
+    fi
+fi
+
+if [ -n "$menu_kind" ]; then
+    log_debug "Using menu: $menu_kind"
+    choice="$(printf '%s\n' "Set" "Random" "Exit" | run_menu "$menu_kind" "Wallpaper action:")"
+else
+    if [ "$FORCE_TTY_MENU" -eq 1 ] || has_tty; then
+        if command -v fzf >/dev/null 2>&1; then
+            choice="$(printf '%s\n' "Set" "Random" "Exit" | fzf --prompt='Wallpaper action: ' --layout=reverse --height=40%)"
+        fi
+    fi
+    # If still empty (no menu available), try to open a terminal to run tty mode.
+    if [ -z "$choice" ] && [ "$FORCE_TTY_MENU" -eq 0 ]; then
+        term_exec="$(pick_terminal)"
+        if [ -n "$term_exec" ]; then
+            # Re-run in tty mode so fzf can display.
+            exec "$term_exec" -e "$0" --tty "$@"
+        fi
+    fi
+    [ -z "$choice" ] && choice="Random"
+fi
+
+[ -z "$choice" ] && exit 0
+
+case "$choice" in
+  "Set")
+    # Prefer sxiv, then fzf, then plain dmenu
+    if can_use_x11 && command -v sxiv >/dev/null 2>&1; then
+        log_debug "Picker: sxiv"
+        img="$(sxiv -t -o "$WALL_DIR" 2>/dev/null | head -n 1)"
+    elif command -v dmenu >/dev/null 2>&1 && { [ "$FORCE_DMENU" -eq 1 ] || x_display_available; }; then
+        log_debug "Picker: dmenu"
+        img="$(find "$WALL_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) 2>/dev/null | run_dmenu "Select wallpaper:")"
+    elif command -v bemenu >/dev/null 2>&1 && has_wayland; then
+        log_debug "Picker: bemenu"
+        img="$(find "$WALL_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) 2>/dev/null | run_bemenu "Select wallpaper:" 20)"
+    elif command -v rofi >/dev/null 2>&1; then
+        log_debug "Picker: rofi"
+        img="$(find "$WALL_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) 2>/dev/null | rofi -dmenu -i -p 'Select wallpaper:')"
+    elif command -v fzf >/dev/null 2>&1; then
+        log_debug "Picker: fzf"
+        img="$(find "$WALL_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) 2>/dev/null | fzf)"
+    else
+        img=""
+    fi
+
+    [ -z "$img" ] && exit 0
+    set_bg "$img"
+    ;;
+
+  "Random")
+    img="$(find "$WALL_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) 2>/dev/null | shuf -n 1)"
+    [ -z "$img" ] && exit 0
+    set_bg "$img"
+    ;;
+
+  "Exit")
+    exit 0
+    ;;
+esac

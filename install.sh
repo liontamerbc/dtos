@@ -618,6 +618,14 @@ if [ -d "$SCRIPT_DIR/alacritty" ]; then
   '
 fi
 
+if [ -f "$SCRIPT_DIR/scripts/dtos-switch" ]; then
+    run_step "Installing dtos-switch profile switcher..." bash -c '
+      mkdir -p "$HOME/.local/bin"
+      cp "'"$SCRIPT_DIR"'/scripts/dtos-switch" "$HOME/.local/bin/dtos-switch"
+      chmod +x "$HOME/.local/bin/dtos-switch"
+  '
+fi
+
 # ---------------------------------------------------------------------------
 # Pywal removal (keep palette static)
 # ---------------------------------------------------------------------------

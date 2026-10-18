@@ -4,6 +4,7 @@ import os
 import socket
 import subprocess
 from pathlib import Path
+import shutil
 
 os.environ["PATH"] = os.pathsep.join([
     os.environ.get("PATH", ""),
@@ -15,6 +16,12 @@ from libqtile.config import Click, Drag, Group, KeyChord, Key, Match, Screen
 from libqtile.lazy import lazy
 from libqtile.log_utils import logger
 from typing import List  # noqa: F401
+
+try:
+    import psutil  # noqa: F401
+    HAS_PSUTIL = True
+except Exception:
+    HAS_PSUTIL = False
 
 try:
     # Wayland-only: used to set keyboard layout without setxkbmap
@@ -30,11 +37,18 @@ def is_wayland():
     except Exception:
         return bool(os.environ.get("WAYLAND_DISPLAY"))
 
-# Set keyboard layout on every startup
+# Refresh X11 key grabs after KeyboardLayout widget finishes configuring setxkbmap
 @hook.subscribe.startup
-def startup():
+def refresh_x11_keys():
     if not is_wayland():
-        os.system("setxkbmap gb")
+        def _regrab():
+            try:
+                qtile.core.conn.refresh_keymap()
+                qtile.grab_keys()
+                qtile.core.conn.conn.flush()
+            except Exception:
+                pass
+        qtile.call_later(0.2, _regrab)
 
 # Run autostart script once (your dtos autostart.sh)
 @hook.subscribe.startup_once
@@ -46,12 +60,13 @@ def start_once():
 # ---------- Basic settings ----------
 
 mod = "mod4"              # SUPER/WIN
-myTerm = "alacritty"
+myTerm = "alacritty" if shutil.which("alacritty") else "xterm"
 myBrowser = "firefox"
 myVirt = "virt-manager"
 myOffice = "libreoffice"
 myPrime = "primevideo"
 myNetflix = "netflix"
+myDisney = "disneyplus"
 myYouTube = "youtube"
 myYTMusic = "youtube-music-desktop-app"
 myReddit = "reddit-desktop-bin"
@@ -69,15 +84,15 @@ ENABLE_STATUS_NOTIFIER = True
 # ---------- Helper window move functions ----------
 
 def window_to_prev_group(qtile):
-    if qtile.currentWindow is not None:
-        i = qtile.groups.index(qtile.currentGroup)
-        qtile.currentWindow.togroup(qtile.groups[i - 1].name)
+    if qtile.current_window is not None:
+        i = qtile.groups.index(qtile.current_group)
+        qtile.current_window.togroup(qtile.groups[i - 1].name)
 
 
 def window_to_next_group(qtile):
-    if qtile.currentWindow is not None:
-        i = qtile.groups.index(qtile.currentGroup)
-        qtile.currentWindow.togroup(qtile.groups[i + 1].name)
+    if qtile.current_window is not None:
+        i = qtile.groups.index(qtile.current_group)
+        qtile.current_window.togroup(qtile.groups[i + 1].name)
 
 
 def window_to_previous_screen(qtile):
@@ -134,65 +149,6 @@ def total_updates_count():
 
     return str(repo + aur)
 
-
-# ---------- Network widget helpers ----------
-# The stock widget.Net throws when a listed interface disappears (common in VMs),
-# then stops polling. Read totals ourselves and format safely.
-NET_STATE = {"ts": None, "rx": None, "tx": None}
-NET_DEV_PATH = Path("/proc/net/dev")
-
-
-def _read_net_totals(skip=("lo",)):
-    rx = tx = 0
-    try:
-        with NET_DEV_PATH.open() as f:
-            for line in f:
-                if ":" not in line:
-                    continue
-                name, data = map(str.strip, line.split(":", 1))
-                if name in skip:
-                    continue
-                fields = data.split()
-                if len(fields) < 9:
-                    continue
-                rx += int(fields[0])
-                tx += int(fields[8])
-    except Exception as err:
-        logger.warning("Net stats read failed: %s", err)
-        return None
-    return rx, tx
-
-
-def _human_rate(bytes_per_sec):
-    # Keep units small but readable
-    units = ["B", "KB", "MB", "GB", "TB"]
-    rate = float(bytes_per_sec)
-    for unit in units:
-        if rate < 1024.0 or unit == units[-1]:
-            return f"{rate:.1f}{unit}/s"
-        rate /= 1024.0
-
-
-def net_status():
-    now = time.monotonic()
-    totals = _read_net_totals()
-    if totals is None:
-        return "Net: --"
-
-    rx, tx = totals
-    last_ts = NET_STATE["ts"]
-    last_rx = NET_STATE["rx"]
-    last_tx = NET_STATE["tx"]
-    NET_STATE.update(ts=now, rx=rx, tx=tx)
-
-    if last_ts is None or last_rx is None or last_tx is None:
-        return "Net: init"
-
-    delta_t = max(now - last_ts, 1e-6)
-    down_rate = (rx - last_rx) / delta_t
-    up_rate = (tx - last_tx) / delta_t
-    return f"Net: {_human_rate(down_rate)} ↓↑ {_human_rate(up_rate)}"
-
 # Workspace helpers: per-screen group names and focus helpers
 BASE_GROUPS = ["DEV", "WWW", "SYS", "DOC", "VBOX", "CHAT", "MUS", "VID", "GFX"]
 # Use letter tags to keep group names unique per screen without showing numbers.
@@ -224,7 +180,69 @@ def move_window_to_group(base, screen_index=None):
 
     return _inner
 
-# ---------- Status widget helpers ----------
+
+def detect_primary_interface():
+    """Return a best-guess network interface (non-loopback) or None."""
+    def _pick(candidates):
+        for prefix in ("en", "eth", "wl", "wlp"):
+            for name in candidates:
+                if name.startswith(prefix):
+                    return name
+        return candidates[0]
+
+    try:
+        entries = []
+        for entry in os.scandir("/sys/class/net"):
+            if not entry.is_dir() or entry.name == "lo":
+                continue
+            state = None
+            try:
+                with open(os.path.join(entry.path, "operstate")) as f:
+                    state = f.read().strip()
+            except Exception:
+                pass
+            entries.append((entry.name, state))
+    except Exception:
+        entries = []
+
+    if not entries:
+        return None
+
+    # Prefer an interface that is up; fall back to any non-loopback interface.
+    up = sorted([name for name, state in entries if state == "up"])
+    if up:
+        return _pick(up)
+
+    names = sorted([name for name, _ in entries])
+    return _pick(names)
+
+
+def build_net_widget(foreground, background):
+    iface = detect_primary_interface()
+    if HAS_PSUTIL and iface:
+        return widget.Net(
+            interface=iface,
+            format="Net: {down} ↓↑ {up}",
+            foreground=foreground,
+            background=background,
+            padding=5,
+        )
+    text = "Net: N/A" if iface else "Net: no iface"
+    return widget.TextBox(text=text, foreground=foreground, background=background, padding=5)
+
+
+def build_memory_widget(foreground, background):
+    if HAS_PSUTIL:
+        return widget.Memory(
+            foreground=foreground,
+            background=background,
+            mouse_callbacks={"Button1": lambda: qtile.spawn(myTerm + " -e htop")},
+            measure_mem="G",
+            format="{MemUsed:.1f}/{MemTotal:.1f}",
+            fmt="Mem: {}",
+            padding=5,
+        )
+    return widget.TextBox(text="Mem: N/A", foreground=foreground, background=background, padding=5)
 
 
 def build_temp_widget(foreground, background):
@@ -239,6 +257,7 @@ def build_temp_widget(foreground, background):
     except Exception as err:
         logger.warning("Thermal sensor unavailable: %s", err)
         return widget.TextBox(text="Temp: N/A", foreground=foreground, background=background, padding=5)
+
 
 # Systray helper
 def build_tray_widget(background):
@@ -271,6 +290,7 @@ restart_binding = lazy.reload_config() if is_wayland() else lazy.restart()
 keys = [
     # The essentials
     Key([mod, "shift"], "Return", lazy.spawn("dm-run"), desc="Run Launcher"),
+    Key([mod, "shift"], "d", lazy.spawn("dtos-switch --toggle"), desc="Toggle DTOS Profile (Original / Pywal)"),
     Key([mod, "shift"], "r", restart_binding,
         desc="Reload config (Wayland) / Restart Qtile (X11)"),
     Key([mod, "shift"], "q", lazy.shutdown(), desc="Shutdown Qtile"),
@@ -303,6 +323,10 @@ keys = [
         lazy.function(focus_group_on_screen("VID")),
         lazy.spawn(myNetflix),
         desc="Netflix"),
+    Key([mod], "d",
+        lazy.function(focus_group_on_screen("VID")),
+        lazy.spawn(myDisney),
+        desc="Disney+"),
     Key([mod], "c",
         lazy.function(focus_group_on_screen("CHAT")),
         lazy.spawn(myChat),
@@ -316,7 +340,7 @@ keys = [
         lazy.spawn(myYouTube),
         desc="YouTube"),
 
-    # Focus specific monitor (0,1,2). Use Ctrl+Super+e to keep the Super+e chord free.
+    # Focus specific monitor (0,1,2)
     Key([mod], "w", lazy.to_screen(0), desc="Focus monitor 1"),
     Key([mod, "control"], "e", lazy.to_screen(1), desc="Focus monitor 2"),
     Key([mod], "r", lazy.to_screen(2), desc="Focus monitor 3"),
@@ -417,6 +441,7 @@ keys = [
         Key([], "a", lazy.spawn("dm-sounds"), desc="Choose ambient sound"),
         Key([], "b", lazy.spawn("dm-setbg"), desc="Set background"),
         Key([], "c", lazy.spawn("dtos-colorscheme"), desc="Color scheme"),
+        Key([], "d", lazy.spawn("dtos-switch"), desc="Switch DTOS profile"),
         Key([], "e", lazy.spawn("dm-confedit"), desc="Edit config file"),
         Key([], "i", lazy.spawn("dm-maim"), desc="Take screenshot"),
         Key([], "k", lazy.spawn("dm-kill"), desc="Kill processes"),
@@ -525,7 +550,7 @@ def load_wal_colors():
         return FALLBACK_COLORS
 
 
-colors = load_wal_colors()
+colors = FALLBACK_COLORS
 
 
 # ---------- Layouts ----------
@@ -669,21 +694,9 @@ def init_widgets_list(visible_groups, include_systray=True):
 
         # Right side status with powerline separators
         powerline(colors[0], colors[3]),
-        widget.GenPollText(
-            func=net_status,
-            update_interval=2,
-            foreground=colors[1],
-            background=colors[3],
-            padding=5,
-        ),
+        build_net_widget(colors[1], colors[3]),
         powerline(colors[3], colors[4]),
-        widget.GenPollText(
-            func=build_temp_widget,
-            update_interval=900,
-            foreground=colors[1],
-            background=colors[4],
-            padding=5,
-        ),
+        build_temp_widget(colors[1], colors[4]),
         powerline(colors[4], colors[5]),
         widget.GenPollText(
             update_interval=1800,
@@ -697,17 +710,7 @@ def init_widgets_list(visible_groups, include_systray=True):
             padding=5,
         ),
         powerline(colors[5], colors[6]),
-        widget.Memory(
-            foreground=colors[1],
-            background=colors[6],
-            mouse_callbacks={
-                "Button1": lambda: qtile.spawn(myTerm + " -e htop")
-            },
-            measure_mem="G",
-            format="{MemUsed:.1f}/{MemTotal:.1f}",
-            fmt="Mem: {}",
-            padding=5,
-        ),
+        build_memory_widget(colors[1], colors[6]),
         powerline(colors[6], colors[7]),
         widget.Volume(
             foreground=colors[1],
@@ -719,6 +722,7 @@ def init_widgets_list(visible_groups, include_systray=True):
         widget.KeyboardLayout(
             foreground=colors[1],
             background=colors[8],
+            configured_keyboards=["gb"],
             fmt="KB: {}",
             padding=5,
         ),
