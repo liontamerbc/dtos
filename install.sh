@@ -558,17 +558,26 @@ Qtile config will NOT be copied." 12 70
     fi
 fi
 
-# Copy pywal hooks/templates so wallpaper colors propagate system-wide
+# Copy pywal/wallust hooks & templates so wallpaper colors propagate system-wide
 if [ -d "$SCRIPT_DIR/wal" ]; then
-    run_step "Copying pywal hooks..." bash -c '
+    run_step "Copying postrun hooks..." bash -c '
       mkdir -p "$HOME/.config"
       cp -r "'"$SCRIPT_DIR"'/wal" "$HOME/.config/"
       chmod +x "$HOME/.config/wal/postrun" 2>/dev/null || true
     '
 fi
 
-# Seed pywal cache once so colors are ready for widgets/GTK/KDE out of the box.
-run_step "Seeding pywal colors from a wallpaper (once)..." bash -c '
+if [ -d "$SCRIPT_DIR/wallust" ]; then
+    run_step "Copying wallust config and templates..." bash -c '
+      mkdir -p "$HOME/.config/profiles/dtos-wallust"
+      rm -rf "$HOME/.config/wallust" "$HOME/.config/profiles/dtos-wallust/wallust"
+      cp -r "'"$SCRIPT_DIR"'/wallust" "$HOME/.config/wallust"
+      cp -r "'"$SCRIPT_DIR"'/wallust" "$HOME/.config/profiles/dtos-wallust/wallust"
+    '
+fi
+
+# Seed wallust cache once so colors are ready for widgets/GTK/KDE out of the box.
+run_step "Seeding wallust colors from a wallpaper (once)..." bash -c '
   pick_wall() {
     # 1) user cache from dtos wallpaper tools
     for candidate in "$HOME/.cache/wall" "$HOME/.cache/wall_qtile" "$HOME/.cache/wall_awesome"; do
@@ -592,11 +601,11 @@ run_step "Seeding pywal colors from a wallpaper (once)..." bash -c '
     return 1
   }
 
-  if command -v wal >/dev/null 2>&1; then
-    wall_img="$(pick_wall || true)"
-    if [ -n "$wall_img" ]; then
-      wal -n -q -i "$wall_img" >/dev/null 2>&1 || true
-    fi
+  wall_img="$(pick_wall || true)"
+  if [ -n "$wall_img" ] && command -v wallust >/dev/null 2>&1; then
+    wallust run -d "$HOME/.config/profiles/dtos-wallust/wallust" -w -q "$wall_img" >/dev/null 2>&1 || true
+  elif [ -n "$wall_img" ] && command -v wal >/dev/null 2>&1; then
+    wal -n -q -i "$wall_img" >/dev/null 2>&1 || true
   fi
 '
 

@@ -112,7 +112,7 @@ else
     warn "No .Xresources file found in bundle. Skipping Xresources."
 fi
 
-# 5) PYWAL HOOKS (postrun + templates)
+# 5) PYWAL / WALLUST HOOKS (postrun + templates)
 if [ -d "$BASE_DIR/wal" ]; then
     mkdir -p "$HOME/.config"
     dest="$HOME/.config/wal"
@@ -128,6 +128,14 @@ if [ -d "$BASE_DIR/wal" ]; then
     chmod +x "$dest/postrun" 2>/dev/null || true
 else
     warn "No wal directory found in bundle. Skipping pywal hooks."
+fi
+
+if [ -d "$BASE_DIR/wallust" ]; then
+    info "Installing wallust config and templates -> ~/.config/wallust & ~/.config/profiles/dtos-wallust/wallust"
+    mkdir -p "$HOME/.config/profiles/dtos-wallust"
+    rm -rf "$HOME/.config/wallust" "$HOME/.config/profiles/dtos-wallust/wallust"
+    cp -r "$BASE_DIR/wallust" "$HOME/.config/wallust"
+    cp -r "$BASE_DIR/wallust" "$HOME/.config/profiles/dtos-wallust/wallust"
 fi
 
 # 6) DTOS DMENU BINARIES (if you ship compiled dmenu in DTOS-Pywal/dmenu/)
