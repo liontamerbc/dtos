@@ -159,9 +159,9 @@ apply_pywal() {
             "$@" -e >/dev/null 2>&1
         fi
     fi
-    # Reload Qtile so widgets pick up the fresh wal palette immediately.
+    # Recolor Qtile widgets in-place immediately (zero flicker).
     if command -v qtile >/dev/null 2>&1; then
-        qtile cmd-obj -o cmd -f reload_config >/dev/null 2>&1 || true
+        qtile cmd-obj -o cmd -f fire_user_hook -a recolor_bar >/dev/null 2>&1 || true
     fi
 }
 
