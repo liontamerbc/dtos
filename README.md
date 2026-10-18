@@ -2,7 +2,7 @@
 <!-- <p align="center"><img src="YOUR_BANNER_URL_HERE" alt="dtos Banner" /></p> -->
 
 <h1 align="center">🦁 dtos 🦁</h1>
-<h3 align="center">Derek Taylor’s DTOS tiling desktop for Arch & Arch-based systems (with Pywal)</h3>
+<h3 align="center">Derek Taylor’s DTOS tiling desktop for Arch & Arch-based systems (with Wallust Rust Engine)</h3>
 
 <p align="center">A Derek Taylor–inspired, keyboard-first setup with pywal-powered colors and offline-friendly bundles.</p>
 

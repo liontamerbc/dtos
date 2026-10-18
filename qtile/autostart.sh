@@ -98,17 +98,10 @@ else
     fi
 fi
 
-# Re-apply pywal colors to match the chosen wallpaper (if pywal is installed)
-if command -v wal >/dev/null 2>&1; then
-    if [ -n "$CHOSEN_WALL" ] && [ -f "$CHOSEN_WALL" ]; then
-        wal -n -q -i "$CHOSEN_WALL" >/dev/null 2>&1 || true
-    elif [ -f "$HOME/.cache/wal/wal" ]; then
-        wal -R -n -q >/dev/null 2>&1 || true
-    fi
+# Apply wallust colors to match the chosen wallpaper
+if command -v wallust >/dev/null 2>&1 && [ -n "$CHOSEN_WALL" ] && [ -f "$CHOSEN_WALL" ]; then
+    wallust run -d "$HOME/.config/profiles/dtos-wallust/wallust" -w -q "$CHOSEN_WALL" >/dev/null 2>&1 || true
+    [ -x "$HOME/.config/wal/postrun" ] && "$HOME/.config/wal/postrun" >/dev/null 2>&1 || true
 fi
-
-# If you prefer nitrogen instead of xwallpaper, comment the whole block above
-# and uncomment this:
-# nitrogen --restore &
 
 exit 0
