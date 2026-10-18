@@ -33,14 +33,15 @@ get_timestamp() {
 # local version of cp2cb is needed to account for dm-maim's specific usage
 
 cp2cb-maim() {
-    case "$XDG_SESSION_TYPE" in
+    case "${XDG_SESSION_TYPE:-x11}" in
     'x11') xclip -selection clipboard -t image/png ;;
     'wayland') wl-copy -t image/png ;;
-    *) err "Unknown display server" ;;
+    *) xclip -selection clipboard -t image/png ;;
     esac
 }
 
 main() {
+    sleep 0.08
     local _maim_args=""
     local _file_type=""
     # Makes sure the directory exists.

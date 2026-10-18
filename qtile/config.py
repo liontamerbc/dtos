@@ -291,6 +291,8 @@ keys = [
     # The essentials
     Key([mod, "shift"], "Return", lazy.spawn("dm-run"), desc="Run Launcher"),
     Key([mod, "shift"], "d", lazy.spawn("dtos-switch --toggle"), desc="Toggle DTOS Profile (Original / Pywal)"),
+    Key([mod], "s", lazy.spawn("dm-maim"), desc="Take screenshot"),
+    Key([], "Print", lazy.spawn("dm-maim"), desc="Take screenshot"),
     Key([mod, "shift"], "r", restart_binding,
         desc="Reload config (Wayland) / Restart Qtile (X11)"),
     Key([mod, "shift"], "q", lazy.shutdown(), desc="Shutdown Qtile"),
