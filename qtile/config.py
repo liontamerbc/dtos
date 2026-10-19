@@ -297,6 +297,7 @@ keys = [
         desc="Reload config (Wayland) / Restart Qtile (X11)"),
     Key([mod, "shift"], "q", lazy.shutdown(), desc="Shutdown Qtile"),
     Key([mod, "shift"], "e", lazy.spawn("emacsclient -c -a emacs"), desc="Doom Emacs"),
+    Key([mod], "t", lazy.spawn("thunar"), desc="Thunar file manager"),
     Key([mod], "Tab", lazy.next_layout(), desc="Toggle through layouts"),
     Key([mod], "q", lazy.window.kill(), desc="Kill active window"),
 
