@@ -1,30 +1,18 @@
 #!/usr/bin/env bash
 
-# Simple CLI for shell-color-scripts with safer path detection
+# Simple CLI for shell-color-scripts
 
 if [[ "$DEV" -gt 0 ]]; then
-    searched_paths=("./colorscripts")
+    DIR_COLORSCRIPTS="./colorscripts"
 else
-    searched_paths=(
-        "$HOME/.local/share/shell-color-scripts/colorscripts"
-        "$HOME/.local/bin"
-        "/usr/local/share/shell-color-scripts/colorscripts"
-        "/usr/share/shell-color-scripts/colorscripts"
-        "/opt/shell-color-scripts/colorscripts"
-    )
-fi
-
-DIR_COLORSCRIPTS=""
-for candidate in "${searched_paths[@]}"; do
-    if [[ -d "$candidate" ]]; then
-        DIR_COLORSCRIPTS="$candidate"
-        break
+    DIR_COLORSCRIPTS="/opt/shell-color-scripts/colorscripts"
+    if [[ ! -d "${DIR_COLORSCRIPTS}" && -d "${HOME}/.local/share/shell-color-scripts/colorscripts" ]]; then
+        DIR_COLORSCRIPTS="${HOME}/.local/share/shell-color-scripts/colorscripts"
+    elif [[ ! -d "${DIR_COLORSCRIPTS}" && -d "${HOME}/dtos/shell-color-scripts/colorscripts" ]]; then
+        DIR_COLORSCRIPTS="${HOME}/dtos/shell-color-scripts/colorscripts"
+    elif [[ ! -d "${DIR_COLORSCRIPTS}" && -d "${HOME}/shell-color-scripts/colorscripts" ]]; then
+        DIR_COLORSCRIPTS="${HOME}/shell-color-scripts/colorscripts"
     fi
-done
-
-if [[ -z "$DIR_COLORSCRIPTS" ]]; then
-    echo "colorscript: no colorscripts directory found. Checked: ${searched_paths[*]}"
-    exit 1
 fi
 
 if command -v find &>/dev/null; then
@@ -35,17 +23,16 @@ else
     LS_CMD_B="$(command -v ls) ${DIR_COLORSCRIPTS}/blacklisted"
 fi
 
-list_colorscripts="$($LS_CMD | xargs -I {} basename {} | cut -d ' ' -f 1 | nl)"
+list_colorscripts="$($LS_CMD | xargs -I $ basename $ | cut -d ' ' -f 1 | nl)"
 length_colorscripts="$($LS_CMD | wc -l)"
-list_blacklist="$($LS_CMD_B 2>/dev/null | xargs -I {} basename {} | cut -d ' ' -f 1 | nl || true)"
+list_blacklist="$($LS_CMD_B 2>/dev/null | xargs -I $ basename $ | cut -d ' ' -f 1 | nl || true)"
 length_blacklist="$($LS_CMD_B 2>/dev/null | wc -l || 0)"
 
-fmt_help="  %-20s\t%-54s\n"
 function _help() {
     echo "Description: A collection of terminal color scripts."
     echo ""
     echo "Usage: colorscript [OPTION] [SCRIPT NAME/INDEX]"
-    printf "%s" "${fmt_help}" \
+    printf "  %-20s\t%-54s\n" \
         "-h, --help, help" "Print this help." \
         "-l, --list, list" "List all installed color scripts." \
         "-r, --random, random" "Run a random color script." \
@@ -55,17 +42,8 @@ function _help() {
         "-a, --all, all" "List the outputs of all colorscripts with their SCRIPT NAME"
 }
 
-function _assert_has_colorscripts() {
-    if [[ "$length_colorscripts" -le 0 ]]; then
-        echo "colorscript: no color scripts found in ${DIR_COLORSCRIPTS}."
-        exit 1
-    fi
-}
-
 function _list() {
-    _assert_has_colorscripts
-    count="$($LS_CMD | wc -l)"
-    echo "There are ${count} installed color scripts:"
+    echo "There are $($LS_CMD | wc -l) installed color scripts:"
     echo "${list_colorscripts}"
 }
 
@@ -75,7 +53,10 @@ function _list_blacklist() {
 }
 
 function _random() {
-    _assert_has_colorscripts
+    if [[ "$length_colorscripts" -le 0 ]]; then
+        echo "No color scripts found in ${DIR_COLORSCRIPTS}."
+        exit 1
+    fi
     declare -i random_index=$RANDOM%$length_colorscripts
     [[ $random_index -eq 0 ]] && random_index=1
 
@@ -90,7 +71,6 @@ function ifhascolorscipt() {
 }
 
 function _run_by_name() {
-    _assert_has_colorscripts
     if [[ "$1" == "random" ]]; then
         _random
     elif [[ -n "$(ifhascolorscipt "$1")" ]]; then
@@ -102,7 +82,6 @@ function _run_by_name() {
 }
 
 function _run_by_index() {
-    _assert_has_colorscripts
     if [[ "$1" -gt 0 && "$1" -le "${length_colorscripts}" ]]; then
 
         colorscript="$(echo "${list_colorscripts}" | sed -n "${1}p" |
@@ -123,14 +102,12 @@ function _run_colorscript() {
 }
 
 function _run_all() {
-    _assert_has_colorscripts
-    shopt -s nullglob
     for s in "$DIR_COLORSCRIPTS"/*; do
-        echo "${s##*/}:"
+        [ -f "$s" ] || continue
+        printf '%s:\n' "${s##*/}"
         "$s"
         echo
     done
-    shopt -u nullglob
 }
 
 function _blacklist_colorscript() { # by name only
