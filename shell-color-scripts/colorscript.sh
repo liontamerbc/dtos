@@ -6,7 +6,11 @@ if [[ "$DEV" -gt 0 ]]; then
     DIR_COLORSCRIPTS="./colorscripts"
 else
     DIR_COLORSCRIPTS="/opt/shell-color-scripts/colorscripts"
-    if [[ ! -d "${DIR_COLORSCRIPTS}" && -d "${HOME}/shell-color-scripts/colorscripts" ]]; then
+    if [[ ! -d "${DIR_COLORSCRIPTS}" && -d "${HOME}/.local/share/shell-color-scripts/colorscripts" ]]; then
+        DIR_COLORSCRIPTS="${HOME}/.local/share/shell-color-scripts/colorscripts"
+    elif [[ ! -d "${DIR_COLORSCRIPTS}" && -d "${HOME}/dtos/shell-color-scripts/colorscripts" ]]; then
+        DIR_COLORSCRIPTS="${HOME}/dtos/shell-color-scripts/colorscripts"
+    elif [[ ! -d "${DIR_COLORSCRIPTS}" && -d "${HOME}/shell-color-scripts/colorscripts" ]]; then
         DIR_COLORSCRIPTS="${HOME}/shell-color-scripts/colorscripts"
     fi
 fi
