@@ -1,5 +1,27 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Simple DTOS-style run launcher.
-# Let your patched dmenu + Xresources handle the theme.
+# On dtos-pywal / dtos-wallust (DMENU_PYWAL=1 in ~/.config/dmscripts/config),
+# dmenu follows the current wallpaper palette from ~/.cache/wal/colors.sh.
+# Otherwise your patched dmenu + Xresources handle the theme.
+
+use_wal=0
+cfg="$HOME/.config/dmscripts/config"
+if [ -f "$cfg" ] && grep -Eq '^[[:space:]]*DMENU_PYWAL=1' "$cfg"; then
+    use_wal=1
+fi
+
+wal_colors="$HOME/.cache/wal/colors.sh"
+if [ "$use_wal" = "1" ] && [ -f "$wal_colors" ]; then
+    : "${FZF_DEFAULT_OPTS:=}" "${LS_COLORS:=}"
+    # shellcheck disable=SC1090
+    . "$wal_colors"
+    bg="${background:-${color0:-}}"
+    fg="${foreground:-${color7:-}}"
+    accent="${color4:-${color2:-${color1:-}}}"
+    sel_fg="${color15:-$fg}"
+    if [ -n "$bg" ] && [ -n "$fg" ] && [ -n "$accent" ]; then
+        exec dmenu_run -nb "$bg" -nf "$fg" -sb "$accent" -sf "$sel_fg" -p "Run:"
+    fi
+fi
 
 exec dmenu_run -p "Run:"
