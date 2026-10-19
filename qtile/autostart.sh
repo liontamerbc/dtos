@@ -7,6 +7,9 @@ systemctl --user import-environment DISPLAY XAUTHORITY XDG_SESSION_TYPE XDG_CURR
 dbus-update-activation-environment --systemd DISPLAY XAUTHORITY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP 2>/dev/null || true
 setxkbmap gb
 
+# Enable AMDGPU TearFree and 180Hz on both monitors to eliminate screen tearing
+[ "${XDG_SESSION_TYPE:-x11}" != "wayland" ] && xrandr --output DisplayPort-0 --mode 1920x1080 --rate 180.00 --set TearFree on --output DisplayPort-1 --mode 1920x1080 --rate 180.00 --right-of DisplayPort-0 --set TearFree on &
+
 # Start compositor (picom config is installed by DTOS-Original)
 picom --config "$HOME/.config/picom/picom.conf" &
 
